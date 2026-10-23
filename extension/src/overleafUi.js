@@ -32,26 +32,38 @@ class OverleafUi {
   async configure() {
     if (this.running || this.configuring) throw Error('正在处理 Overleaf 操作，请完成后再修改配置。');
     this.configuring = true;
-    try { return await this.configureProject(); } finally { this.configuring = false; }
+    let action;
+    try { action = await this.configureProject(); } finally { this.configuring = false; }
+    if (action === 'push') return this.push();
   }
   async configureProject() {
     const project = this.project();
     const config = structuredClone(this.context.workspaceState.get(project.key) || { url: '', mappings: [] });
     const save = () => this.context.workspaceState.update(project.key, config);
     while (true) {
+      const enabled = this.enabled();
       const choice = await this.vscode.window.showQuickPick([
-        { label: '完成配置并启用', action: 'done' },
+        ...(config.url && config.mappings.length ? [{ label: '$(cloud-upload) 推送到 Overleaf', description: '上传已保存的选定文件', action: 'push' }] : []),
+        { label: enabled ? '保存并关闭' : '完成配置并启用', action: 'done' },
         { label: '项目地址', description: config.url || '尚未设置', action: 'url' },
-        { label: '添加文件', action: 'file' }, { label: '添加文件夹', action: 'folder' },
+        { label: '添加文件', detail: '选择本地文件，指定远端完整文件路径。', action: 'file' },
+        { label: '添加文件夹', detail: '选择本地文件夹，指定远端目录；每次推送重新扫描。', action: 'folder' },
         { label: '保存 / 更换 Git Token', action: 'token' },
+        { label: '删除 Git Token', action: 'forget' },
+        ...(enabled ? [{ label: '关闭 Overleaf 推送', description: '保留项目地址和映射规则', action: 'disable' }] : []),
         ...config.mappings.map((rule, index) => ({ label: (rule.kind === 'folder' ? '文件夹：' : '文件：') + (rule.source || './'), description: '→ ' + (rule.target || '/'), action: 'rule', index }))
-      ], { title: 'Overleaf 推送配置', placeHolder: '按项目保存推送范围和远端路径；Token 单独安全保存' });
+      ], { title: 'Overleaf', placeHolder: '项目地址、文件 / 文件夹映射与推送；点击已有规则修改或删除', ignoreFocusOut: true });
       if (!choice) return;
-      if (choice.action === 'done') {
+      if (choice.action === 'done' || choice.action === 'push') {
         if (!config.url || !config.mappings.length) { void this.vscode.window.showInformationMessage('请先设置项目地址并添加推送范围。'); continue; }
         config.url = projectUrl(config.url);
         await save();
         await this.vscode.workspace.getConfiguration('paperReview').update('overleaf.enabled', true, this.vscode.ConfigurationTarget.Workspace);
+        await this.refresh();
+        return choice.action === 'push' ? 'push' : undefined;
+      }
+      if (choice.action === 'disable') {
+        await this.vscode.workspace.getConfiguration('paperReview').update('overleaf.enabled', false, this.vscode.ConfigurationTarget.Workspace);
         await this.refresh();
         return;
       }
@@ -59,6 +71,7 @@ class OverleafUi {
         const value = await this.vscode.window.showInputBox({ title: 'Overleaf 项目地址', value: config.url, prompt: '项目网页链接或 HTTPS Git 地址（不含 Token）', validateInput: value => { try { projectUrl(value); } catch (error) { return error.message; } } });
         if (value !== undefined) { config.url = projectUrl(value); await save(); }
       } else if (choice.action === 'token') await this.credentials();
+      else if (choice.action === 'forget') await this.forgetCredentials();
       else if (choice.action === 'rule') {
         const rule = config.mappings[choice.index];
         const edit = await this.vscode.window.showQuickPick([{ label: '修改远端路径', action: 'edit' }, { label: '删除规则', action: 'delete' }], { title: rule.source || './' });

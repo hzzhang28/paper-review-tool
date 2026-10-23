@@ -223,7 +223,8 @@
       {
         "command": "paperReview.overleafConfigure",
         "title": "Paper: Overleaf 配置",
-        "icon": "$(settings-gear)"
+        "icon": "$(cloud)",
+        "shortTitle": "Overleaf"
       },
       {
         "command": "paperReview.overleafPush",
@@ -468,8 +469,8 @@
         },
         {
           "command": "paperReview.overleafConfigure",
-          "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
-          "group": "5_overleaf@1"
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "navigation@3"
         }
       ],
       "explorer/context": [
@@ -1205,14 +1206,14 @@
           "type": "boolean",
           "default": false,
           "title": "Overleaf 推送",
-          "description": "启用可选的手动 Git 推送。在“Paper: Overleaf 配置”中设置项目地址及文件映射。",
+          "description": "启用可选的手动 Git 推送；也可直接点击章节面板标题栏的 Overleaf 按钮配置并启用。",
           "restricted": true,
           "order": 50
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.0t1",
+  "paperReviewBuild": "0.4.0r2",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

@@ -1,6 +1,6 @@
 {
   "name": "paper-review-tool",
-  "version": "0.4.0-t1",
+  "version": "0.4.0-r2",
   "private": true,
   "bin": {
     "paperctl": "server/src/cli.js"
