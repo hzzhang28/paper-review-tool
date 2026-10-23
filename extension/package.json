@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -219,6 +219,25 @@
       {
         "command": "paperReview.configureAgent",
         "title": "Paper: 配置默认 Agent"
+      },
+      {
+        "command": "paperReview.overleafConfigure",
+        "title": "Paper: Overleaf 配置",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "paperReview.overleafPush",
+        "title": "Paper: 推送到 Overleaf",
+        "icon": "$(cloud-upload)",
+        "enablement": "paperReview.projectOpen && paperReview.overleafEnabled"
+      },
+      {
+        "command": "paperReview.overleafCredentials",
+        "title": "Paper: 保存 / 更换 Overleaf Git Token"
+      },
+      {
+        "command": "paperReview.overleafForgetCredentials",
+        "title": "Paper: 删除 Overleaf Git Token"
       }
     ],
     "menus": {
@@ -302,6 +321,16 @@
           "command": "paperReview.submitConflict",
           "when": "paperReview.conflictPrepared && resourceFilename == result.tex",
           "group": "navigation@0"
+        },
+        {
+          "command": "paperReview.overleafPush",
+          "when": "resourceScheme == paper && paperReview.overleafEnabled",
+          "group": "5_overleaf@0"
+        },
+        {
+          "command": "paperReview.overleafConfigure",
+          "when": "resourceScheme == paper && paperReview.overleafEnabled",
+          "group": "5_overleaf@1"
         }
       ],
       "editor/context": [
@@ -431,6 +460,16 @@
           "command": "paperReview.submitConflict",
           "when": "paperReview.conflictPrepared && view == paperReview.issues",
           "group": "navigation@1"
+        },
+        {
+          "command": "paperReview.overleafPush",
+          "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
+          "group": "5_overleaf@0"
+        },
+        {
+          "command": "paperReview.overleafConfigure",
+          "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
+          "group": "5_overleaf@1"
         }
       ],
       "explorer/context": [
@@ -1161,11 +1200,19 @@
           },
           "included": true,
           "order": 130
+        },
+        "paperReview.overleaf.enabled": {
+          "type": "boolean",
+          "default": false,
+          "title": "Overleaf 推送",
+          "description": "启用可选的手动 Git 推送。在“Paper: Overleaf 配置”中设置项目地址及文件映射。",
+          "restricted": true,
+          "order": 50
         }
       }
     }
   },
-  "paperReviewBuild": "0.3.9r5",
+  "paperReviewBuild": "0.4.0t1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

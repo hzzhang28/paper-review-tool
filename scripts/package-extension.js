@@ -12,5 +12,9 @@ function copy(source, destination) {
   } else { fs.mkdirSync(path.dirname(destination), { recursive: true }); fs.copyFileSync(source, destination); }
 }
 copy(path.join(root, 'server', 'src'), path.join(target, 'server', 'src'));
-copy(path.join(root, 'node_modules', 'diff'), path.join(target, 'node_modules', 'diff'));
-console.log('Extension runtime prepared: service and jsdiff. No document compilation performed.');
+const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+for (const [relative, item] of Object.entries(lock.packages)) {
+  if (!relative || item.dev || !relative.startsWith('node_modules/')) continue;
+  copy(path.join(root, relative), path.join(target, relative));
+}
+console.log('Extension runtime prepared: service and production dependencies. No document compilation performed.');

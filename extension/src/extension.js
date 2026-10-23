@@ -15,6 +15,7 @@ const { TargetMenus, isChatGPT, resolveAgent, resolveWeb } = require('./targetMe
 const { selectedProfile, profileId } = require('./compileProfiles');
 const { agentInstruction } = require('./agentInstruction');
 const { ConfigurationUi } = require('./configurationUi');
+const { OverleafUi } = require('./overleafUi');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -44,6 +45,9 @@ function activate(context) {
   const chatWeb = new ChatWeb(vscode);
   const webViews = new Map([[CHAT_URL, chatWeb]]), agentPanels = new Map();
   const config = () => vscode.workspace.getConfiguration('paperReview');
+  const overleaf = new OverleafUi(vscode, context, () => projectRoot ? { root: projectRoot, file: masterFile } : undefined);
+  context.subscriptions.push(overleaf);
+  void overleaf.refresh();
   function sourceBridge() {
     if (!chatBridge) {
       chatBridge = new ChatScriptBridge(vscode, fs.readFileSync(path.join(context.extensionPath, 'resources', 'chatgptLatexSource.js'), 'utf8'));
@@ -387,6 +391,10 @@ function activate(context) {
   register("paperReview.openWeb", () => targets.web(rightColumn()));
   register('paperReview.selectCompileProfile', () => settingsUi.openCompile());
   register('paperReview.configureAgent', () => targets.configureAgent());
+  register('paperReview.overleafConfigure', () => overleaf.configure());
+  register('paperReview.overleafPush', () => overleaf.push());
+  register('paperReview.overleafCredentials', () => overleaf.credentials());
+  register('paperReview.overleafForgetCredentials', () => overleaf.forgetCredentials());
   register("paperReview.openChatGPTExternal", async () => {
     if (!await vscode.env.openExternal(vscode.Uri.parse(CHAT_URL))) throw new Error("无法打开默认浏览器。");
   });
@@ -796,6 +804,7 @@ function activate(context) {
   });
   provider.onSaved = refreshStatus;
   if (vscode.workspace.onDidChangeConfiguration) context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('paperReview.overleaf.enabled')) void overleaf.refresh();
     updateTargetButtons();
     void settingsUi.changed(event).then(() => { updateTargetButtons(); if (!buildBusy) compileButton(); }).catch(showError);
     if (event.affectsConfiguration('paperReview.fixChatGPTWebLatex') && config().get('fixChatGPTWebLatex') === false) {

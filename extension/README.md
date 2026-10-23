@@ -6,7 +6,6 @@
 
 从 [GitHub Releases](https://github.com/hzzhang28/paper-review-tool/releases/latest) 下载 VSIX，在 VS Code 扩展视图的 **… → Install from VSIX…** 中安装，随后重新加载窗口。同一数字版本下的更新也需要覆盖安装。
 
-- 使用桌面版 VS Code 和本机受信任工作区；无需单独安装 Node.js。
 - **查看 PDF 需自行安装内联 PDF 阅读扩展，并设为默认查看器。**
 - 编译需安装本机 LaTeX 工具链；仅编辑正文可选择“不编译”。
 - Agent 面板需自行安装对应扩展；Web 入口需要支持内联浏览器的新版 VS Code。
@@ -69,17 +68,19 @@ Issues 中，绑定 Issue 左键定位正文，右键 **编辑 Issue** 打开多
 | pdfLaTeX + BibTeX | pdfLaTeX → BibTeX → pdfLaTeX → pdfLaTeX |
 | XeLaTeX | 一遍编译 |
 | XeLaTeX + BibTeX | XeLaTeX → BibTeX → XeLaTeX → XeLaTeX |
-| 不编译 | 只 Push |
+| 不编译 | N/A |
 
 Windows 和 macOS 使用标准工具命令；其他平台或自定义命令选择“其他”。编译在 Master 所在目录执行，输出保留在该目录。可恢复错误下仍尝试生成 PDF，诊断保留在日志中。
 
 **编译日志** 可打开或隐藏日志；**打开 PDF** 查看已有文件；**重新加载 PDF** 重开当前文件，不触发编译，可能重置页码或缩放。
 
-## 数据与范围
+## Overleaf 推送（可选）
 
-`.paper-manager` 保存 Human Draft、数据库、审计、Issue、历史和冲突快照，请在论文项目的 `.gitignore` 中排除它。本工具只管理一个 `.tex` 文件，文献、图片和实验文件继续使用普通文件与 Git。未保存内容的关闭与恢复由 VS Code 管理。
+运行 **Paper: Overleaf 配置**，填写项目链接或 Git 地址，添加本地文件、文件夹及其远端路径，完成后启用。项目需要具有 Overleaf Git 访问权限；Git Token 从 Overleaf 账户设置中生成，由 VS Code 安全存储保存。
 
-Git 阶段版本保存只提交明确选择的文件。工具不提供多人实时协同、多文件正文管理或自动解决冲突。macOS、Linux 及第三方扩展兼容性仍需实机确认。
+文件规则指定远端完整文件路径；文件夹规则指定远端目录，留空表示项目根目录。文件夹在每次推送时重新扫描。点击 **推送到 Overleaf**，上传所选范围的已保存文件；只新增或覆盖，远端旧文件保留。此操作独立于 Human Draft 的 Push，不自动保存或提交草稿，不提供 Pull。
+
+该功能默认关闭。启用后，章节和正文标题栏的 **…** 菜单中显示配置及推送入口；可在设置中关闭，通过 **Paper: 删除 Overleaf Git Token** 移除凭据。
 
 ## 开发与参考
 

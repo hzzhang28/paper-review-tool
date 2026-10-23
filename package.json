@@ -1,6 +1,6 @@
 {
   "name": "paper-review-tool",
-  "version": "0.3.9-r5",
+  "version": "0.4.0-t1",
   "private": true,
   "bin": {
     "paperctl": "server/src/cli.js"
@@ -18,7 +18,8 @@
     "check:toolchain": "node scripts/check-toolchain.js"
   },
   "dependencies": {
-    "diff": "8.0.2"
+    "diff": "8.0.2",
+    "isomorphic-git": "1.44.4"
   },
   "devDependencies": {
     "@vscode/vsce": "4.0.0"
