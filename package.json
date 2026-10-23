@@ -1,6 +1,6 @@
 {
   "name": "paper-review-tool",
-  "version": "0.3.9-r4",
+  "version": "0.3.9-r5",
   "private": true,
   "bin": {
     "paperctl": "server/src/cli.js"
@@ -26,5 +26,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"
-  }
+  },
+  "license": "MIT",
+  "author": "hz-codex"
 }

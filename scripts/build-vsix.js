@@ -11,7 +11,7 @@ require('./package-extension');
 async function main() {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   await createVSIX({ cwd: extensionRoot, packagePath: output, dependencies: false,
-    allowMissingRepository: true, skipLicense: true });
+    allowMissingRepository: true });
   const sha256 = createHash('sha256').update(fs.readFileSync(output)).digest('hex');
   fs.writeFileSync(output + '.sha256', `${sha256}  ${path.basename(output)}\n`, 'utf8');
   console.log(`VSIX ready: ${path.relative(root, output)}\nSHA-256: ${sha256}`);

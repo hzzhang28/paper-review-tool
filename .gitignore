@@ -16,5 +16,4 @@ dist/
 /tests/
 *.ps1
 /scripts/prepare-host-sample.js
-/docs/validation-plan.md
-/docs/verification-report.md
+/docs/

@@ -79,12 +79,12 @@ Windows 和 macOS 使用标准工具命令；其他平台或自定义命令选�
 
 `.paper-manager` 保存 Human Draft、数据库、审计、Issue、历史和冲突快照，请在论文项目的 `.gitignore` 中排除它。本工具只管理一个 `.tex` 文件，文献、图片和实验文件继续使用普通文件与 Git。未保存内容的关闭与恢复由 VS Code 管理。
 
-Git 阶段版本保存只提交明确选择的文件。工具不提供多人实时协同、多文件正文管理或自动解决冲突。跨平台及第三方扩展兼容性见 [已知限制与待办](https://github.com/hzzhang28/paper-review-tool/blob/main/docs/TODO.md)。
+Git 阶段版本保存只提交明确选择的文件。工具不提供多人实时协同、多文件正文管理或自动解决冲突。macOS、Linux 及第三方扩展兼容性仍需实机确认。
 
 ## 开发与参考
 
-源码打包使用本机 Node.js：`npm ci` 安装依赖，`npm run check` 检查语法，`npm run package:vsix` 生成安装包。依赖要求见 [运行时说明](https://github.com/hzzhang28/paper-review-tool/blob/main/docs/runtime-discussion.md)。
+源码打包使用本机 Node.js：`npm ci` 安装依赖，`npm run check` 检查语法，`npm run package:vsix` 生成安装包。依赖要求见 [package.json](https://github.com/hzzhang28/paper-review-tool/blob/main/package.json)。
 
-[更新日志](https://github.com/hzzhang28/paper-review-tool/blob/main/CHANGELOG.md) · [Agent HTTP](https://github.com/hzzhang28/paper-review-tool/blob/main/docs/agent-http.md) · [API](https://github.com/hzzhang28/paper-review-tool/blob/main/docs/api.md) · [编译配置](https://github.com/hzzhang28/paper-review-tool/blob/main/docs/compile-design.md)
+[更新日志](https://github.com/hzzhang28/paper-review-tool/blob/main/CHANGELOG.md)
 
-许可声明为 UNLICENSED；第三方依赖遵循各自许可证。
+采用 [MIT 许可证](https://github.com/hzzhang28/paper-review-tool/blob/main/LICENSE)；第三方依赖遵循各自许可证。

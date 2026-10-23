@@ -4,7 +4,7 @@
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
   "version": "0.3.9",
   "publisher": "local-paper-tools",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.103.2"
   },
@@ -1165,9 +1165,10 @@
       }
     }
   },
-  "paperReviewBuild": "0.3.9r4",
+  "paperReviewBuild": "0.3.9r5",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"
-  }
+  },
+  "author": "hz-codex"
 }
