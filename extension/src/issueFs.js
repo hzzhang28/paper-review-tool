@@ -9,7 +9,7 @@ function parse(text) {
   const normalized = text.replace(/\r\n/g, '\n');
   const newline = normalized.indexOf('\n');
   const heading = newline < 0 ? normalized : normalized.slice(0, newline);
-  if (!/^# \S/.test(heading) || !heading.slice(2).trim()) throw new Error('第一行请保留“# 标题”，后面可自由换行编辑描述。');
+  if (!/^# \S/.test(heading) || !heading.slice(2).trim()) throw new Error('首行使用“# 标题”，下方可多行填写描述。');
   return { title: heading.slice(2).trim(), description: newline < 0 ? '' : normalized.slice(newline + 1).replace(/^\n/, '') };
 }
 class IssueFs {
@@ -30,7 +30,7 @@ class IssueFs {
     const key = resource.toString();
     if (this.versions.has(key)) return this.versions.get(key);
     const raw = new URLSearchParams(resource.query).get('version'), version = Number(raw);
-    if (raw === null || !Number.isSafeInteger(version) || version < 0) throw vscode.FileSystemError.Unavailable('Issue editor version is missing. Reopen from Issues.');
+    if (raw === null || !Number.isSafeInteger(version) || version < 0) throw vscode.FileSystemError.Unavailable('缺少 Issue 编辑版本，请从 Issues 重新打开。');
     return version;
   }
   async issue(resource) {
@@ -69,9 +69,9 @@ class IssueFs {
     return (await client.request('GET', '/v1/issues')).map(i => [i.id + '.md', vscode.FileType.File]);
   }
   watch() { return new vscode.Disposable(() => {}); }
-  createDirectory() { throw vscode.FileSystemError.NoPermissions('Use Create Issue.'); }
-  rename() { throw vscode.FileSystemError.NoPermissions('Edit the title on the first line.'); }
-  delete() { throw vscode.FileSystemError.NoPermissions('Use Delete Issue.'); }
+  createDirectory() { throw vscode.FileSystemError.NoPermissions('请使用“新建 Issue”。'); }
+  rename() { throw vscode.FileSystemError.NoPermissions('请在编辑页首行修改 Issue 标题。'); }
+  delete() { throw vscode.FileSystemError.NoPermissions('请使用“删除 Issue”。'); }
   dispose() { this.emitter.dispose(); }
 }
 module.exports = { IssueFs, serialize, parse };

@@ -28,22 +28,22 @@ class VirtualFs {
   }
   async readFile(uri) {
     await this.ready(uri); this.validate(uri);
-    if (this.blocked) throw vscode.FileSystemError.Unavailable('Draft refresh paused to protect editor changes. Save a separate copy, close the draft and reopen it.');
+    if (this.blocked) throw vscode.FileSystemError.Unavailable('为保留编辑器修改，已暂停 Human Draft 同步。请另存后重新打开。');
     const file = await this.client.request('GET', '/v1/human/file');
     this.version = file.version;
     return Buffer.from(file.text, 'utf8');
   }
   async writeFile(uri, content) {
     await this.ready(uri); this.validate(uri);
-    if (this.blocked) throw vscode.FileSystemError.Unavailable('Save a separate copy, close the draft and reopen it before reconciling changes.');
+    if (this.blocked) throw vscode.FileSystemError.Unavailable('请先另存 Human Draft，再关闭并重新打开。');
     const text = new TextDecoder('utf-8', { fatal: true }).decode(content).replace(/\r\n/g, '\n');
     if (this.pendingPull) {
-      if (text !== this.pendingPull.text) throw vscode.FileSystemError.Unavailable('Text changed during Pull. Your editor buffer is preserved.');
+      if (text !== this.pendingPull.text) throw vscode.FileSystemError.Unavailable('同步时 Human Draft 已变化，已保留编辑器内容。');
       this.version = this.pendingPull.draftVersion;
       this.pendingPull = undefined;
       return; // Pull already persisted precisely this snapshot.
     }
-    if (this.busy || this.version === undefined) throw vscode.FileSystemError.Unavailable('A paper operation is in progress.');
+    if (this.busy || this.version === undefined) throw vscode.FileSystemError.Unavailable('正在处理项目操作，请稍后重试。');
     const saved = await this.client.request('PUT', '/v1/human/file', { text, expectedDraftVersion: this.version });
     this.version = saved.draftVersion;
     this.onSaved?.();
@@ -55,9 +55,9 @@ class VirtualFs {
   }
   watch() { return new vscode.Disposable(() => {}); }
   refresh() { this.emitter.fire([{ type: vscode.FileChangeType.Changed, uri: this.uri }]); }
-  createDirectory() { throw vscode.FileSystemError.NoPermissions('Single-file provider.'); }
-  delete() { throw vscode.FileSystemError.NoPermissions('Single-file provider.'); }
-  rename() { throw vscode.FileSystemError.NoPermissions('Single-file provider.'); }
+  createDirectory() { throw vscode.FileSystemError.NoPermissions('仅支持受管理的单个文件。'); }
+  delete() { throw vscode.FileSystemError.NoPermissions('仅支持受管理的单个文件。'); }
+  rename() { throw vscode.FileSystemError.NoPermissions('仅支持受管理的单个文件。'); }
   dispose() { this.emitter.dispose(); }
 }
 module.exports = { VirtualFs };

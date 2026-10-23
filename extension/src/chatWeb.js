@@ -4,7 +4,7 @@ const CHAT_URL = 'https://chatgpt.com/';
 const BROWSER_COMMAND = 'workbench.action.browser.open';
 
 class ChatWeb extends EditorGroups {
-  constructor(vscode, bridge, { url = CHAT_URL, name = 'ChatGPT' } = {}) { super(vscode); this.bridge = bridge; this.url = url; this.name = name; }
+  constructor(vscode, bridge, { url = CHAT_URL, name = 'ChatGPT Web' } = {}) { super(vscode); this.bridge = bridge; this.url = url; this.name = name; }
   async setBridge(bridge) {
     if (bridge === this.bridge) return;
     if (this.bridge && this.tab) {
@@ -18,8 +18,8 @@ class ChatWeb extends EditorGroups {
     if (!this.bridge) return;
     try { await this.bridge.apply(this.tab); }
     catch (error) {
-      this.vscode.window.showWarningMessage("ChatGPT 网页已打开，LaTeX 源码模式尚未启用：" + error.message +
-        " 可重试，或使用“复制 ChatGPT LaTeX 源码模式脚本”作为备用。");
+      this.vscode.window.showWarningMessage("ChatGPT Web 已打开，LaTeX 源码模式尚未启用：" + error.message +
+        " 请重试，或在命令面板使用“复制 ChatGPT Web LaTeX 源码脚本”。");
     }
   }
   open(column = 2) {
@@ -30,7 +30,7 @@ class ChatWeb extends EditorGroups {
   async show(column) {
     const vscode = this.vscode;
     if (!(await vscode.commands.getCommands(true)).includes(BROWSER_COMMAND)) {
-      throw new Error('当前 VS Code 没有 Integrated Browser，请更新 VS Code，或使用“在默认浏览器打开 ChatGPT”。');
+      throw new Error('当前 VS Code 不支持内联浏览器（Integrated Browser），请更新后重试。');
     }
     await this.focusGroup(column);
     const existing = this.entries().find(entry => entry.tab === this.tab);
@@ -44,7 +44,7 @@ class ChatWeb extends EditorGroups {
       return fresh.length === 1 && vscode.window.tabGroups.activeTabGroup.activeTab === fresh[0].tab ? fresh[0] : undefined;
     };
     if (!await this.waitFor(() => !!created())) {
-      vscode.window.showInformationMessage('已调用 Integrated Browser。未确认新标签，未移动其他页面；浏览器布局设置可能将页面放在独立窗口。');
+      vscode.window.showInformationMessage('已打开内联浏览器，请检查标签或浏览器窗口。');
       return;
     }
     const entry = created();

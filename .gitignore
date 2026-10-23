@@ -1,6 +1,5 @@
 node_modules/
 .npm-cache/
-tests/.work/
 extension/runtime/
 .vscode-test/
 .paper-manager/
@@ -12,3 +11,10 @@ dist/
 *.pem
 *.key
 *.log
+
+# Local development checks are not published.
+/tests/
+*.ps1
+/scripts/prepare-host-sample.js
+/docs/validation-plan.md
+/docs/verification-report.md

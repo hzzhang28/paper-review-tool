@@ -1,7 +1,7 @@
 {
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
-  "description": "单文件 LaTeX 版本管理、AI 审计、Issue 与可配置本地编译。",
+  "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
   "version": "0.3.9",
   "publisher": "local-paper-tools",
   "license": "UNLICENSED",
@@ -37,11 +37,11 @@
     "commands": [
       {
         "command": "paperReview.open",
-        "title": "Paper: Open Human Draft"
+        "title": "Paper: 打开 Human Draft"
       },
       {
         "command": "paperReview.openProject",
-        "title": "Paper: 初始化 / 打开 / 切换项目",
+        "title": "Paper: 初始化 / 打开项目",
         "icon": "$(folder-opened)"
       },
       {
@@ -51,7 +51,7 @@
       },
       {
         "command": "paperReview.copyCliPath",
-        "title": "Paper: Copy AI CLI Path"
+        "title": "Paper: 复制旧 CLI 路径"
       },
       {
         "command": "paperReview.push",
@@ -66,21 +66,21 @@
       },
       {
         "command": "paperReview.openChatGPTExternal",
-        "title": "Paper: 在默认浏览器打开 ChatGPT"
+        "title": "Paper: 在默认浏览器打开 ChatGPT Web"
       },
       {
         "command": "paperReview.copyChatGPTScript",
-        "title": "Paper: 复制 ChatGPT LaTeX 源码模式脚本"
+        "title": "Paper: 复制 ChatGPT Web LaTeX 源码脚本"
       },
       {
         "command": "paperReview.openPdf",
-        "title": "Paper: 打开现有 PDF",
+        "title": "Paper: 打开 PDF",
         "icon": "$(file-pdf)",
         "enablement": "paperReview.projectOpen"
       },
       {
         "command": "paperReview.cancelCompile",
-        "title": "Paper: 取消编译",
+        "title": "Paper: 停止编译",
         "icon": "$(debug-stop)",
         "enablement": "paperReview.compiling"
       },
@@ -91,83 +91,83 @@
       },
       {
         "command": "paperReview.state",
-        "title": "Paper: Show Status and Conflicts"
+        "title": "Paper: 查看项目状态"
       },
       {
         "command": "paperReview.refresh",
-        "title": "Paper: Refresh Outline and Issues",
+        "title": "Paper: 刷新章节与 Issues",
         "icon": "$(refresh)"
       },
       {
         "command": "paperReview.locate",
-        "title": "Paper: Locate"
+        "title": "Paper: 定位正文"
       },
       {
         "command": "paperReview.approve",
-        "title": "Paper: Approve Review"
+        "title": "Paper: 通过审核"
       },
       {
         "command": "paperReview.unreviewed",
-        "title": "Paper: 标黄 / 待审核"
+        "title": "Paper: 标黄（待审核）"
       },
       {
         "command": "paperReview.needsFix",
-        "title": "Paper: Mark Needs Fix"
+        "title": "Paper: 标红（需修改）"
       },
       {
         "command": "paperReview.reject",
-        "title": "Paper: Reject Change"
+        "title": "Paper: 拒绝修改"
       },
       {
         "command": "paperReview.createIssue",
-        "title": "Paper: Create Issue",
+        "title": "Paper: 新建 Issue",
         "icon": "$(add)"
       },
       {
         "command": "paperReview.editIssue",
-        "title": "Paper: Edit Issue"
+        "title": "Paper: 编辑 Issue"
       },
       {
         "command": "paperReview.rebindIssue",
-        "title": "Paper: Rebind Issue to Current Line / Paragraph"
+        "title": "Paper: 重新绑定 Issue"
       },
       {
         "command": "paperReview.toggleIssue",
-        "title": "Paper: Close / Reopen Issue"
+        "title": "Paper: 解决 / 重新打开 Issue"
       },
       {
         "command": "paperReview.showIssue",
-        "title": "Paper: Show Issue"
+        "title": "Paper: 查看 Issue"
       },
       {
         "command": "paperReview.resolveConflict",
-        "title": "Paper: Open Conflict in Merge Editor",
+        "title": "Paper: 打开冲突",
         "icon": "$(warning)"
       },
       {
         "command": "paperReview.submitConflict",
-        "title": "Paper: 提交解决结果并更新正文",
+        "title": "Paper: 提交合并结果",
         "icon": "$(check-all)"
       },
       {
         "command": "paperReview.snapshot",
-        "title": "Paper: Save Master Version to Git"
+        "title": "Paper: 保存 Git 阶段版本"
       },
       {
         "command": "paperReview.events",
-        "title": "Paper: Browse AI Change Events"
+        "title": "Paper: 查看 AI 修改历史"
       },
       {
         "command": "paperReview.history",
-        "title": "Paper: Browse Revision History"
+        "title": "Paper: 查看 Master 修订历史"
       },
       {
         "command": "paperReview.restore",
-        "title": "Paper: Restore Historical Revision as New Master"
+        "title": "Paper: 恢复 Master 历史版本"
       },
       {
         "command": "paperReview.deleteIssue",
-        "title": "Paper: Delete Issue",
+        "title": "Paper: 删除 Issue",
         "icon": "$(trash)"
       },
       {
@@ -177,23 +177,23 @@
       },
       {
         "command": "paperReview.showOutline",
-        "title": "Paper: 显示章节目录",
+        "title": "Paper: 显示章节",
         "icon": "$(list-tree)"
       },
       {
         "command": "paperReview.reloadPdf",
-        "title": "Paper: 重新加载现有 PDF（不编译）",
+        "title": "Paper: 重新加载 PDF",
         "icon": "$(refresh)",
         "enablement": "paperReview.projectOpen"
       },
       {
         "command": "paperReview.updateOnly",
-        "title": "Paper: Update Only（丢弃本地修改）",
+        "title": "Paper: Update Only（放弃本地修改）",
         "icon": "$(cloud-download)"
       },
       {
         "command": "paperReview.mergeUpdate",
-        "title": "Paper: Merge Update（Push + 合并 + 更新）",
+        "title": "Paper: Merge Update（合并并更新）",
         "icon": "$(git-merge)"
       },
       {
@@ -403,16 +403,6 @@
           "group": "3_agent@2"
         },
         {
-          "command": "paperReview.copyChatGPTScript",
-          "when": "view == paperReview.reviews",
-          "group": "3_agent@3"
-        },
-        {
-          "command": "paperReview.openChatGPTExternal",
-          "when": "view == paperReview.reviews",
-          "group": "3_agent@4"
-        },
-        {
           "command": "paperReview.state",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "4_project@0"
@@ -486,6 +476,12 @@
           "when": "viewItem =~ /^issue/",
           "group": "inline@1"
         }
+      ],
+      "commandPalette": [
+        {
+          "command": "paperReview.copyCliPath",
+          "when": "false"
+        }
       ]
     },
     "viewsContainers": {
@@ -501,11 +497,11 @@
       "paperReview": [
         {
           "id": "paperReview.reviews",
-          "name": "Paper 章节"
+          "name": "章节"
         },
         {
           "id": "paperReview.outline",
-          "name": "Paper 章节",
+          "name": "章节",
           "when": "false"
         },
         {
@@ -518,21 +514,21 @@
       {
         "view": "paperReview.reviews",
         "when": "!paperReview.projectOpen",
-        "contents": "选择论文 .tex 文件即可开始；所在文件夹自动作为项目根目录。\n[初始化 / 打开项目](command:paperReview.openProject)"
+        "contents": "选择受管理的 .tex 文件，加载草稿与项目数据。\n[初始化 / 打开项目](command:paperReview.openProject)"
       },
       {
         "view": "paperReview.issues",
         "when": "!paperReview.projectOpen",
-        "contents": "打开项目后查看和管理 Issue。\n[初始化 / 打开项目](command:paperReview.openProject)"
+        "contents": "打开项目后管理 Issue。\n[初始化 / 打开项目](command:paperReview.openProject)"
       }
     ],
     "configuration": {
-      "title": "Paper Review",
+      "title": "Paper Review Tool",
       "properties": {
         "paperReview.agentTargets": {
           "type": "array",
           "default": [],
-          "description": "自定义 Agent 入口；与已安装的类似扩展合并显示。command 为 VS Code 命令 ID。",
+          "description": "兼容旧配置的 Agent 列表。",
           "restricted": true,
           "items": {
             "type": "object",
@@ -564,15 +560,15 @@
           "type": "array",
           "default": [
             {
-              "name": "ChatGPT",
+              "name": "ChatGPT Web",
               "url": "https://chatgpt.com/"
             },
             {
-              "name": "Claude",
+              "name": "Claude Web",
               "url": "https://claude.ai/"
             }
           ],
-          "description": "Web 下拉菜单的名称和 http(s) 网址。仅 ChatGPT 自动启用已有 LaTeX 源码模式脚本。",
+          "description": "兼容旧配置的 Web 列表。",
           "items": {
             "type": "object",
             "required": [
@@ -604,24 +600,25 @@
             "none"
           ],
           "enumItemLabels": [
-            "pdf",
-            "pdf+bib",
-            "xe",
-            "xe+bib",
+            "pdfLaTeX",
+            "pdfLaTeX + BibTeX",
+            "XeLaTeX",
+            "XeLaTeX + BibTeX",
             "其他",
             "不编译"
           ],
           "default": "pdflatex-bibtex",
-          "description": "编译引擎。",
+          "description": "选择引擎；“其他”打开自定义方案。",
           "order": 31,
-          "restricted": true
+          "restricted": true,
+          "title": "编译引擎"
         },
         "paperReview.compileProfiles": {
           "type": "array",
           "default": [
             {
               "id": "pdflatex",
-              "name": "pdfLaTeX（单遍）",
+              "name": "pdfLaTeX",
               "steps": [
                 {
                   "command": "pdflatex",
@@ -636,7 +633,7 @@
             },
             {
               "id": "pdflatex-bibtex",
-              "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+              "name": "pdfLaTeX + BibTeX",
               "steps": [
                 {
                   "command": "pdflatex",
@@ -676,7 +673,7 @@
             },
             {
               "id": "xelatex",
-              "name": "XeLaTeX（单遍）",
+              "name": "XeLaTeX",
               "steps": [
                 {
                   "command": "xelatex",
@@ -691,7 +688,7 @@
             },
             {
               "id": "xelatex-bibtex",
-              "name": "XeLaTeX + BibTeX（三遍 LaTeX）",
+              "name": "XeLaTeX + BibTeX",
               "steps": [
                 {
                   "command": "xelatex",
@@ -731,11 +728,11 @@
             },
             {
               "id": "none",
-              "name": "不编译（纯 .tex 编辑）",
+              "name": "不编译",
               "steps": []
             }
           ],
-          "description": "命名编译方案。每步单独启动 command，args 按参数传递，不经 shell。支持 ${file}（主文件名）、${stem}（无扩展名）、${root}（项目目录）。空 steps 表示不编译。",
+          "description": "兼容旧配置的编译方案列表。",
           "restricted": true,
           "items": {
             "type": "object",
@@ -788,8 +785,8 @@
         "paperReview.fixChatGPTWebLatex": {
           "type": "boolean",
           "default": true,
-          "title": "修复chatgpt web latex编译失败报错",
-          "description": "仅适用于 ChatGPT。",
+          "title": "修复 ChatGPT Web LaTeX 编译报错",
+          "description": "通过调试连接显示 LaTeX 代码块源码，仅对 ChatGPT Web 生效。关闭后使用普通内联浏览器。",
           "order": 22
         },
         "paperReview.defaultAgent": {
@@ -805,7 +802,7 @@
             "其他"
           ],
           "default": "codex",
-          "description": "默认 Agent。",
+          "description": "Agent 按钮的默认目标；“其他”打开自定义入口。",
           "order": 10
         },
         "paperReview.customAgent": {
@@ -838,7 +835,7 @@
           },
           "restricted": true,
           "order": 110,
-          "markdownDescription": "其他 Agent。[检测已安装 Agent](command:paperReview.configureAgent)"
+          "markdownDescription": "自定义 Agent 的名称和命令。[检测已安装 Agent](command:paperReview.configureAgent)"
         },
         "paperReview.defaultWeb": {
           "type": "string",
@@ -848,12 +845,12 @@
             "other"
           ],
           "enumItemLabels": [
-            "GPT",
-            "Claude",
+            "ChatGPT Web",
+            "Claude Web",
             "其他"
           ],
           "default": "gpt",
-          "description": "默认 Web。",
+          "description": "Web 按钮的默认目标；“其他”打开自定义入口。",
           "order": 20
         },
         "paperReview.customWeb": {
@@ -877,7 +874,7 @@
             "name": "ChatGPT Web",
             "url": "https://chatgpt.com/"
           },
-          "description": "其他网页。",
+          "description": "自定义 Web 的名称和 HTTP(S) 地址。",
           "order": 120
         },
         "paperReview.paperCompile": {
@@ -888,15 +885,16 @@
             "other"
           ],
           "enumItemLabels": [
-            "默认 Windows",
-            "默认 macOS",
+            "Windows",
+            "macOS",
             "其他"
           ],
           "default": "windows",
-          "description": "首次按本机系统自动选择。",
+          "description": "首次按系统选择；“其他”打开自定义方案列表。",
           "order": 30,
           "scope": "machine",
-          "restricted": true
+          "restricted": true,
+          "title": "编译平台"
         },
         "paperReview.customCompile": {
           "type": "object",
@@ -945,7 +943,7 @@
           },
           "default": {
             "id": "pdflatex-bibtex",
-            "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+            "name": "pdfLaTeX + BibTeX",
             "steps": [
               {
                 "command": "pdflatex",
@@ -983,14 +981,14 @@
               }
             ]
           },
-          "description": "其他方案的名称和命令步骤。",
+          "description": "自定义编译方案的名称和步骤；command 为命令，args 为参数数组。",
           "restricted": true,
           "order": 131
         },
         "paperReview.agentInstruction": {
           "type": "string",
-          "default": "Pull: POST http://127.0.0.1:{{port}}/v1/ai/pull\n请求体：空。返回：text/plain，编辑文件完整路径。\n\nPush: POST http://127.0.0.1:{{port}}/v1/ai/push\nContent-Type: application/json\nJSON 字段：file（string，Pull 返回的完整路径）。",
-          "description": "可编辑前后文；{{port}} 自动填入当前端口。",
+          "default": "Pull: POST http://127.0.0.1:{{port}}/v1/ai/pull\n请求体：空。返回：text/plain，AI 临时副本完整路径。\n\nPush: POST http://127.0.0.1:{{port}}/v1/ai/push\nContent-Type: application/json\nJSON 字段：file（string，Pull 返回的完整路径）。",
+          "description": "复制时将 {{port}} 替换为当前服务端口，可编辑指令前后文。",
           "editPresentation": "multilineText",
           "order": 40
         },
@@ -999,7 +997,7 @@
           "default": [
             {
               "id": "pdflatex",
-              "name": "pdfLaTeX（单遍）",
+              "name": "pdfLaTeX",
               "steps": [
                 {
                   "command": "pdflatex",
@@ -1014,7 +1012,7 @@
             },
             {
               "id": "pdflatex-bibtex",
-              "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+              "name": "pdfLaTeX + BibTeX",
               "steps": [
                 {
                   "command": "pdflatex",
@@ -1054,7 +1052,7 @@
             },
             {
               "id": "xelatex",
-              "name": "XeLaTeX（单遍）",
+              "name": "XeLaTeX",
               "steps": [
                 {
                   "command": "xelatex",
@@ -1069,7 +1067,7 @@
             },
             {
               "id": "xelatex-bibtex",
-              "name": "XeLaTeX + BibTeX（三遍 LaTeX）",
+              "name": "XeLaTeX + BibTeX",
               "steps": [
                 {
                   "command": "xelatex",
@@ -1109,11 +1107,11 @@
             },
             {
               "id": "none",
-              "name": "不编译（纯 .tex 编辑）",
+              "name": "不编译",
               "steps": []
             }
           ],
-          "description": "其他平台的命名编译方案。",
+          "description": "自定义平台的编译方案列表；每个方案包含 id、name 和 steps。",
           "restricted": true,
           "items": {
             "type": "object",
@@ -1167,5 +1165,9 @@
       }
     }
   },
-  "paperReviewBuild": "0.3.9r3"
+  "paperReviewBuild": "0.3.9r4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hzzhang28/paper-review-tool.git"
+  }
 }

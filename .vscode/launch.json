@@ -1,7 +1,7 @@
 {
   "version": "0.2.0",
   "configurations": [{
-    "name": "Paper Review Extension",
+    "name": "Paper Review Tool",
     "type": "extensionHost",
     "request": "launch",
     "preLaunchTask": "Prepare paper extension runtime",

@@ -1,18 +1,17 @@
 {
   "name": "paper-review-tool",
-  "version": "0.3.9-r3",
+  "version": "0.3.9-r4",
   "private": true,
   "bin": {
     "paperctl": "server/src/cli.js"
   },
-  "description": "Single-file paper versions, AI review, Issues and a VS Code managed service",
+  "description": "VS Code extension for TeX editing, auditing, and AI integration",
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
     "start": "node server/src/server.js",
     "paperctl": "node server/src/cli.js",
-    "test": "node --test tests/*.test.js",
     "check": "node scripts/check.js",
     "package:extension": "node scripts/package-extension.js",
     "package:vsix": "node scripts/build-vsix.js",
@@ -23,5 +22,9 @@
   },
   "devDependencies": {
     "@vscode/vsce": "4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hzzhang28/paper-review-tool.git"
   }
 }

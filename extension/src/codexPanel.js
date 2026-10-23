@@ -48,7 +48,7 @@ class CodexPanel extends EditorGroups {
     };
     await vscode.commands.executeCommand(target.command, ...(target.args || []));
     if (!await this.waitFor(() => !!created())) {
-      vscode.window.showInformationMessage('已调用 ' + target.name + '；未能确认独立编辑器标签。若目标只提供侧栏，将保留其原布局。');
+      vscode.window.showInformationMessage('已调用 ' + target.name + '，请检查编辑器标签或侧栏。');
       return;
     }
     const result = created();

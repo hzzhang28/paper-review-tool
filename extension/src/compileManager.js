@@ -48,11 +48,11 @@ class BuildStorage {
   prepare({ root, masterFile, revision, text }) {
     root = path.resolve(root);
     if (!samePath(this.fs.realpathSync(root), root)) throw new Error('Invalid project root.');
-    if (!Number.isSafeInteger(revision) || revision < 1 || typeof text !== 'string' || !text.isWellFormed()) throw new Error('An archived Master Revision is required.');
+    if (!Number.isSafeInteger(revision) || revision < 1 || typeof text !== 'string' || !text.isWellFormed()) throw new Error('缺少已提交的 Master 修订版本。');
     const base = path.basename(masterFile, '.tex');
     if (path.basename(masterFile) !== masterFile || !masterFile.endsWith('.tex') || !base || /["\r\n]/.test(base) || base.startsWith('-')) throw new Error('The managed Master must be a .tex file in the project root.');
     const master = this.safe(root, masterFile), bytes = this.fs.readFileSync(master);
-    if (normalized(bytes.toString('utf8')) !== normalized(text)) throw new Error('Master 已变化，与刚 Push 的 Revision 不一致，请重新编译。');
+    if (normalized(bytes.toString('utf8')) !== normalized(text)) throw new Error('Master 已变化，与刚 Push 的修订版本不一致，请重新编译。');
     const build = this.safe(root, '.paper-manager/build'); this.fs.mkdirSync(build, { recursive: true });
     const lock = this.safe(root, '.paper-manager/build/compile.lock');
     if (this.fs.existsSync(lock)) {

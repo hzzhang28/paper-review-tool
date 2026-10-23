@@ -36,9 +36,9 @@ function validAgent(target) {
   return target;
 }
 function webTarget(target) {
-  if (!target || typeof target.name !== 'string' || !target.name.trim() || typeof target.url !== 'string') throw Error('网页入口需要 name 和 url。');
+  if (!target || typeof target.name !== 'string' || !target.name.trim() || typeof target.url !== 'string') throw Error('Web 入口需要 name 和 url。');
   const url = new URL(target.url);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw Error('网页只支持不含凭据的 http(s) 地址。');
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw Error('Web 入口仅支持不含凭据的 HTTP(S) 地址。');
   return { ...target, url: url.href };
 }
 function isChatGPT(url) {

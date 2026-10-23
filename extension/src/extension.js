@@ -25,8 +25,8 @@ function activate(context) {
   const conflictStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.8);
   conflictStatus.command = 'paperReview.resolveConflict';
   const submitConflictStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.6);
-  submitConflictStatus.text = '$(check-all) 提交解决结果并更新正文';
-  submitConflictStatus.tooltip = '保存合并结果，提交 Master 并同步人工正文；无需再次 Push 或 Update。';
+  submitConflictStatus.text = '$(check-all) 提交合并结果';
+  submitConflictStatus.tooltip = '保存合并结果并同步 Master 与 Human Draft。';
   submitConflictStatus.command = 'paperReview.submitConflict';
   const output = vscode.window.createOutputChannel('Paper Review');
   const buildOutput = vscode.window.createOutputChannel('Paper Build', 'paper-build-log');
@@ -35,11 +35,11 @@ function activate(context) {
   buildLogStatus.command = 'paperReview.buildLog';
   const pdfStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 47);
   pdfStatus.text = '$(file-pdf) 打开 PDF'; pdfStatus.command = 'paperReview.openPdf';
-  pdfStatus.tooltip = '打开或切回现有 PDF；不保存、不 Push、不编译。';
+  pdfStatus.tooltip = '查看已有 PDF，不触发编译。';
   const codex = new CodexPanel(vscode, context.workspaceState);
   const instructionStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45.5);
   instructionStatus.text = '$(copy) Agent Instruction'; instructionStatus.command = 'paperReview.copyAgentPrompt';
-  instructionStatus.tooltip = '复制包含当前端口的 HTTP Pull / Push 指令。';
+  instructionStatus.tooltip = '复制当前项目的 HTTP Pull / Push 指令。';
   let chatBridge;
   const chatWeb = new ChatWeb(vscode);
   const webViews = new Map([[CHAT_URL, chatWeb]]), agentPanels = new Map();
@@ -83,7 +83,7 @@ function activate(context) {
     let profile; try { profile = selectedProfile(config()); } catch {}
     buildStatus.text = busy ? '$(debug-stop) 停止编译' : profile?.steps.length === 0 ? '$(cloud-upload) Push（不编译）' : '$(play) Push + 编译';
     buildStatus.command = busy ? 'paperReview.cancelCompile' : 'paperReview.compile';
-    buildStatus.tooltip = busy ? '取消本次编译；查看过程请点击右侧编译日志。' : '保存 Draft、Push，然后执行编译方案：' + (profile?.name || '尚未配置') + '。可在 … 菜单打开编译设置。';
+    buildStatus.tooltip = busy ? '停止本次编译。' : '保存 Human Draft 并 Push，随后编译：' + (profile?.name || '尚未配置') + '。';
   }
   compileButton();
   const compiler = new CompileManager({ output: buildOutput }); activeCompiler = compiler;
@@ -92,26 +92,26 @@ function activate(context) {
   const issueFs = new IssueFs({ workspaceState: context.workspaceState,
     getClient: issueClient,
     write: async (resource, action) => {
-      if (transitioning && !closingTabs || operation || provider.busy || provider.blocked) throw new Error('Another paper operation is in progress.');
+      if (transitioning && !closingTabs || operation || provider.busy || provider.blocked) throw new Error('正在处理项目操作，请稍后重试。');
       projectTasks++;
       try { return await action(await issueClient(resource)); } finally { projectTasks--; }
     },
     onSaved: () => refreshStatus(true)
   });
   async function issueClient(resource) {
-    if (transitioning && !closingTabs) throw new Error('A project is being opened or closed.');
+    if (transitioning && !closingTabs) throw new Error('正在打开或关闭项目，请稍后重试。');
     if (!client) {
       const project = context.workspaceState.get('activeProject');
-      if (!project || project.authority !== resource.authority) throw new Error('Open this Issue project first.');
+      if (!project || project.authority !== resource.authority) throw new Error('请先打开此 Issue 所属项目。');
       await provider.ready(vscode.Uri.from({ scheme: 'paper', authority: project.authority, path: '/' + path.basename(project.file) }));
     }
-    if (resource.authority !== uri?.authority) throw new Error('Open this Issue project first.');
+    if (resource.authority !== uri?.authority) throw new Error('请先打开此 Issue 所属项目。');
     return client;
   }
   ui = new ReviewUi(undefined, undefined);
   function idleStatus() {
     status.command = 'paperReview.openProject'; status.text = '$(folder-opened) Paper: 打开项目';
-    status.tooltip = '选择 .tex 初始化、打开或切换项目'; status.show();
+    status.tooltip = '选择 .tex 文件，打开或切换项目。'; status.show();
     preparedConflictId = undefined; conflictStatus.hide(); submitConflictStatus.hide();
     void vscode.commands.executeCommand('setContext', 'paperReview.conflictPrepared', false);
     buildStatus.hide(); buildLogStatus.hide(); pdfStatus.hide(); codexStatus.hide(); instructionStatus.hide(); chatStatus.hide();
@@ -124,7 +124,7 @@ function activate(context) {
     let entered = false;
     try {
       if (protectedCommand) {
-        if (transitioning) throw new Error('A project is being opened or closed.');
+        if (transitioning) throw new Error('正在打开或关闭项目，请稍后重试。');
         projectTasks++; entered = true;
       }
       return await callback(...args);
@@ -146,12 +146,12 @@ function activate(context) {
       status.text = 'Master r' + state.masterRevision +
         (dirty ? ' | Unsaved' : '') + (state.unpushed ? ' | Unpushed' : '') +
         (state.updateAvailable ? ' | New Updates' : ' | Updated');
-      status.tooltip = state.drift || state.reviewCount + ' pending Master reviews; ' + state.issueCount + ' open Issues; ' + state.conflicts.length + ' conflicts. Push submits only; Update Only discards local changes; Merge Update pushes and updates.';
+      status.tooltip = state.drift || state.reviewCount + ' 个审计范围，' + state.issueCount + ' 个未解决 Issue。点击打开章节。';
       status.show();
       const conflicts = state.conflicts;
       if (conflicts.length) {
         conflictStatus.text = '$(warning) Conflicts (' + conflicts.length + ')' + (state.pendingCount ? ' | Pending (' + state.pendingCount + ')' : '');
-        conflictStatus.tooltip = '打开未解决冲突，在 Merge Editor 中查看和编辑具体内容。';
+        conflictStatus.tooltip = '在合并编辑器中处理冲突。';
         conflictStatus.show();
       } else if (state.pendingCount) {
         conflictStatus.text = '$(clock) Pending (' + state.pendingCount + ')'; conflictStatus.command = 'paperReview.state'; conflictStatus.show();
@@ -164,20 +164,20 @@ function activate(context) {
       const notice = state.aiNotification;
       if (notice && notice.sequence > lastAINotification) {
         lastAINotification = notice.sequence;
-        if (notice.status === 'conflict') vscode.window.showWarningMessage('AI 提交存在合并冲突，已保留快照，请在 Paper 状态中处理。');
-        else if (notice.status === 'pending') vscode.window.showInformationMessage('AI 提交已进入 Pending，将在当前冲突处理完成后继续。');
+        if (notice.status === 'conflict') vscode.window.showWarningMessage('AI 提交存在冲突，请点击 Conflicts 处理。');
+        else if (notice.status === 'pending') vscode.window.showInformationMessage('AI 提交已进入 Pending，当前冲突处理完成后继续。');
         else vscode.window.showInformationMessage('AI 已提交到 Master r' + notice.masterRevision + '。使用 Update Only 或 Merge Update 获取最新正文。');
       }
       if (ui) await ui.refresh();
     } catch (error) {
       if (client !== current || transitioning) return;
-      status.text = 'Paper | Service unavailable'; status.tooltip = error.message; status.show();
+      status.text = 'Paper | 服务不可用'; status.tooltip = error.message; status.show();
       if (projectRoot && !operation) { try { client = await manager.ensure(projectRoot, masterFile, { requireExisting: true }); } catch (failure) { output.appendLine(failure.message); } }
     }
   }
   async function connect(project, resource) {
-    if (vscode.env.remoteName) throw new Error('This version supports local desktop workspaces only.');
-    if (!vscode.workspace.isTrusted) throw new Error('Trust the workspace before starting the local service.');
+    if (vscode.env.remoteName) throw new Error('请使用桌面 VS Code 的本机工作区。');
+    if (!vscode.workspace.isTrusted) throw new Error('请先将工作区设为受信任。');
     const { root, file } = project;
     const nextClient = await manager.ensure(root, file, { initialReview: project.initialReview, requireExisting: project.initialized !== false });
     const state = await nextClient.request('GET', '/v1/state');
@@ -192,7 +192,7 @@ function activate(context) {
     await context.workspaceState.update('activeProject', { root, file: masterFile, authority: uri.authority });
     status.command = 'paperReview.showOutline';
     compileButton(); buildStatus.show();
-    buildLogStatus.text = '$(output) 编译日志'; buildLogStatus.tooltip = '打开／隐藏编译日志，不会触发编译。'; buildLogStatus.show(); pdfStatus.show(); codexStatus.show(); instructionStatus.show(); chatStatus.show();
+    buildLogStatus.text = '$(output) 编译日志'; buildLogStatus.tooltip = '打开 / 隐藏编译日志。'; buildLogStatus.show(); pdfStatus.show(); codexStatus.show(); instructionStatus.show(); chatStatus.show();
     await vscode.commands.executeCommand('setContext', 'paperReview.projectOpen', true);
     if (!profileId(config())) vscode.window.showInformationMessage('尚未配置本机编译方案。请打开 Paper: 编译设置；仅编辑正文可选择“不编译”。');
     return uri;
@@ -230,8 +230,8 @@ function activate(context) {
     return true;
   }
   async function openProject(selected) {
-    if (operation || transitioning || projectTasks) throw new Error('Another paper operation is in progress.');
-    if (vscode.env.remoteName || !vscode.workspace.isTrusted) throw new Error('Open a trusted local workspace first.');
+    if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
+    if (vscode.env.remoteName || !vscode.workspace.isTrusted) throw new Error('请先打开受信任的本机工作区。');
     if (selected?.scheme !== 'file') {
       const chosen = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: false,
         canSelectMany: false, filters: { LaTeX: ['tex'] }, openLabel: '初始化 / 打开项目', title: '选择论文 .tex 文件（所在文件夹作为项目根目录）' });
@@ -242,13 +242,13 @@ function activate(context) {
     if (client && projectRoot === project.root && masterFile === project.file) { await showDraft(); return; }
     if (!project.initialized) {
       const mode = await vscode.window.showQuickPick([
-        { label: '全部已审核', description: '将现有内容作为已通过审核的起点', value: 'approved' },
-        { label: '全部待审核', description: '现有内容显示黄色高亮，按段落或结构逐项审计', value: 'unreviewed' }
-      ], { title: '首次初始化：选择现有内容的审计状态', ignoreFocusOut: true });
+        { label: '全部已审核', description: '将现有正文视为已审核', value: 'approved' },
+        { label: '全部待审核', description: '将现有正文标黄，待逐项审核', value: 'unreviewed' }
+      ], { title: '选择初始审计状态', ignoreFocusOut: true });
       if (!mode) return;
       project.initialReview = mode.value;
     }
-    if (operation || transitioning || projectTasks) throw new Error('Another paper operation is in progress.');
+    if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
     try {
       if (!await releaseProject()) return;
@@ -261,12 +261,12 @@ function activate(context) {
   }
   register('paperReview.openProject', openProject);
   register('paperReview.closeProject', async () => {
-    if (operation || transitioning || projectTasks) throw new Error('Another paper operation is in progress.');
+    if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
     try { await releaseProject(); } finally { transitioning = false; await refreshStatus(); }
   });
   register('paperReview.open', async () => {
-    if (transitioning) throw new Error('A project is being opened or closed.');
+    if (transitioning) throw new Error('正在打开或关闭项目，请稍后重试。');
     const existing = vscode.workspace.textDocuments.find(doc => doc.uri.scheme === 'paper' && !doc.isClosed);
     if (!client && existing) await provider.ready(existing.uri);
     if (!client) return openProject();
@@ -276,16 +276,16 @@ function activate(context) {
   // Only a restored paper:// resource starts the remembered project's service.
   // Merely activating the extension never starts Node or creates project data.
   provider.resolve = async resource => {
-    if (transitioning) throw vscode.FileSystemError.Unavailable('Project switch in progress.');
+    if (transitioning) throw vscode.FileSystemError.Unavailable('正在切换项目。');
     let project = context.workspaceState.get('activeProject');
     if (!project) {
       const root = context.workspaceState.get('projectRoot'), file = context.workspaceState.get('masterFile');
       if (root && file) project = { root, file, authority: 'project' }; // 0.2.0 editor restoration.
     }
     if (!project || resource.authority !== project.authority || !['/', '/' + path.basename(project.file)].includes(resource.path)) {
-      throw vscode.FileSystemError.FileNotFound('Use Initialize / Open Project to select a .tex file.');
+      throw vscode.FileSystemError.FileNotFound('请通过“初始化 / 打开项目”选择 .tex 文件。');
     }
-    if (!fs.existsSync(path.join(project.root, '.paper-manager', 'state.db'))) throw vscode.FileSystemError.Unavailable('Project data is missing. Open Project to initialize explicitly.');
+    if (!fs.existsSync(path.join(project.root, '.paper-manager', 'state.db'))) throw vscode.FileSystemError.Unavailable('缺少项目数据，请通过“初始化 / 打开项目”重新打开。');
     await connect({ ...project, initialized: true }, vscode.Uri.from({ scheme: 'paper', authority: project.authority, path: '/' + path.basename(project.file) }));
     await refreshStatus();
     const restoredClient = client;
@@ -294,24 +294,24 @@ function activate(context) {
     }, 0);
   };
   async function withDraft(kind) {
-    if (operation || transitioning) throw new Error('Another paper operation is in progress.');
+    if (operation || transitioning) throw new Error('正在处理项目操作，请稍后重试。');
     let editor = vscode.window.activeTextEditor;
     if (editor?.document.uri.scheme === 'paper-issue') { await saveIssueEditors(); editor = await savedEditor(); }
-    if (!uri) throw new Error('Open the Human Draft first.');
+    if (!uri) throw new Error('请先打开 Human Draft。');
     if (!editor || editor.document.uri.toString() !== uri.toString()) editor = await savedEditor();
-    if (provider.blocked) throw new Error('Save a separate copy, close the Human Draft, then reopen it.');
+    if (provider.blocked) throw new Error('请先另存 Human Draft，再关闭并重新打开。');
     await saveIssueEditors();
     if (kind === 'update') {
       const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs).filter(tab => tab.input?.uri?.scheme === 'paper-issue' && tab.input.uri.authority === uri.authority);
       if (tabs.length && !await vscode.window.tabGroups.close(tabs, true)) return;
     }
-    if (operation || transitioning) throw new Error('Another paper operation is in progress.');
+    if (operation || transitioning) throw new Error('正在处理项目操作，请稍后重试。');
     operation = true;
     let pulled;
     try {
       const document = editor.document;
-      if (document.isDirty && !await document.save()) throw new Error('Draft could not be saved.');
-      if (document.isDirty) throw new Error('Draft changed during save. Save before retrying.');
+      if (document.isDirty && !await document.save()) throw new Error('Human Draft 保存失败。');
+      if (document.isDirty) throw new Error('保存时 Human Draft 已变化，请保存后重试。');
       const version = document.version;
       const selections = editor.selections;
       const visible = editor.visibleRanges[0];
@@ -319,12 +319,12 @@ function activate(context) {
       const result = await client.request('POST', `/v1/human/${kind}`, { expectedDraftVersion: provider.version });
       if (result.text !== undefined) {
         pulled = result;
-        if (document.version !== version || document.isDirty) throw new Error('Text changed while Update was in progress. Your editor text is preserved; save a separate copy before closing and reopening the draft.');
+        if (document.version !== version || document.isDirty) throw new Error('同步时 Human Draft 已变化，已保留编辑器内容。请另存后关闭并重新打开。');
         provider.pendingPull = result;
         const end = document.positionAt(document.getText().length);
         const applied = await editor.edit(builder => builder.replace(new vscode.Range(new vscode.Position(0, 0), end), result.text),
           { undoStopBefore: true, undoStopAfter: true });
-        if (!applied || !await document.save() || document.getText().replace(/\r\n/g, '\n') !== result.text) throw new Error('Could not synchronize the editor after Update; preserve your buffer and reopen the draft.');
+        if (!applied || !await document.save() || document.getText().replace(/\r\n/g, '\n') !== result.text) throw new Error('Human Draft 同步失败，请另存编辑器内容后重新打开。');
         // An unchanged document may make save() a no-op, so acknowledge even
         // when VS Code did not invoke writeFile for this particular Update.
         provider.version = result.draftVersion;
@@ -334,7 +334,7 @@ function activate(context) {
         provider.refresh();
       }
       if (result.staleIssueDeletes?.length) vscode.window.showInformationMessage('这些 Issue 已有更新，取消了旧的删除操作，请检查后重新删除：' + result.staleIssueDeletes.join('、'));
-      vscode.window.setStatusBarMessage('Paper ' + kind + ': Master r' + result.masterRevision, 4000);
+      vscode.window.setStatusBarMessage(({ push: 'Push', update: 'Update Only', 'merge-update': 'Merge Update', pull: '同步' }[kind] || kind) + '：Master r' + result.masterRevision, 4000);
       return result;
     } catch (error) {
       if (pulled) { provider.blocked = true; provider.pendingPull = undefined; }
@@ -351,23 +351,23 @@ function activate(context) {
   register('paperReview.copyCliPath', async () => {
     const script = path.join(context.extensionPath, 'runtime', 'server', 'src', 'cli.js');
     await vscode.env.clipboard.writeText(script);
-    vscode.window.showInformationMessage('AI CLI path copied. In the paper project terminal, run node "<copied path>" clone.');
+    vscode.window.showInformationMessage('已复制旧 CLI 路径；推荐使用 Agent Instruction 中的 HTTP 接口。');
   });
   // Compatibility for old keybindings only; no Pull command is contributed.
   register('paperReview.pull', () => withDraft('pull'));
   register('paperReview.mergeUpdate', () => withDraft('merge-update'));
   register('paperReview.updateOnly', async () => {
-    if (!client || !uri) throw new Error('Open the Human Draft first.');
+    if (!client || !uri) throw new Error('请先打开 Human Draft。');
     const state = await client.request('GET', '/v1/state');
     const dirty = vscode.workspace.textDocuments.some(doc => !doc.isClosed && doc.uri.authority === uri.authority && ['paper', 'paper-issue'].includes(doc.uri.scheme) && doc.isDirty);
     if (state.unpushed || dirty) {
-      const choice = await vscode.window.showWarningMessage('Update Only 将丢弃未提交的正文、审计和 Issue 修改，并同步到最新 Master。', { modal: true }, 'Update Only');
+      const choice = await vscode.window.showWarningMessage('Update Only 将放弃未提交的正文、审计及 Issue 修改，并载入最新 Master。', { modal: true }, 'Update Only');
       if (choice !== 'Update Only') return;
     }
     return withDraft('update');
   });
   register('paperReview.copyAgentPrompt', async () => {
-    if (!client) throw new Error('Open a paper project first.');
+    if (!client) throw new Error('请先打开项目。');
     await vscode.env.clipboard.writeText(agentInstruction(await client.connection(), config().get('agentInstruction')));
     vscode.window.showInformationMessage('Agent Instruction 已复制。');
   });
@@ -382,7 +382,7 @@ function activate(context) {
     return owner?.viewColumn ?? vscode.ViewColumn.Two;
   }
   register("paperReview.openCodex", () => codex.open(rightColumn()));
-  register("paperReview.openChatGPT", () => openWebTarget({ name: 'ChatGPT', url: CHAT_URL }, rightColumn()));
+  register("paperReview.openChatGPT", () => openWebTarget({ name: 'ChatGPT Web', url: CHAT_URL }, rightColumn()));
   register("paperReview.openAgent", () => targets.agent(rightColumn()));
   register("paperReview.openWeb", () => targets.web(rightColumn()));
   register('paperReview.selectCompileProfile', () => settingsUi.openCompile());
@@ -393,13 +393,13 @@ function activate(context) {
   register("paperReview.copyChatGPTScript", async () => {
     const script = fs.readFileSync(path.join(context.extensionPath, "resources", "chatgptLatexSource.js"), "utf8");
     await vscode.env.clipboard.writeText(script);
-    vscode.window.showInformationMessage("脚本已复制。请在 ChatGPT 网页自身的 DevTools Console 粘贴执行；整页重载后需重新执行。");
+    vscode.window.showInformationMessage("脚本已复制，请在 ChatGPT Web 的 DevTools Console 中执行；整页重载后需重新执行。");
   });
   let pdfOperations = Promise.resolve();
   function openPdf(options = {}) {
     const current = client, root = projectRoot, file = masterFile;
     const pending = pdfOperations.then(async () => {
-      if (!current || client !== current || root !== projectRoot) throw new Error('Open a paper project first.');
+      if (!current || client !== current || root !== projectRoot) throw new Error('请先打开项目。');
       return showPdf(root, file, options);
     });
     pdfOperations = pending.catch(() => {});
@@ -414,7 +414,7 @@ function activate(context) {
     const legacy = entries().filter(entry => entry.tab.input?.viewType === 'paperReview.pdf').map(entry => entry.tab);
     if (legacy.length && !await vscode.window.tabGroups.close(legacy, true)) return false;
     if (!fs.existsSync(resource.fsPath)) {
-      if (!quiet) vscode.window.showInformationMessage('当前没有已生成的 PDF。查看操作不会 Push 或编译。');
+      if (!quiet) vscode.window.showInformationMessage('当前没有已生成的 PDF。');
       return false;
     }
     const matches = entries();
@@ -439,7 +439,7 @@ function activate(context) {
       return true;
     } catch (error) {
       output.appendLine('PDF 编辑器未能打开：' + error.message);
-      if (!quiet) vscode.window.showInformationMessage('请使用现有 PDF 查看器打开根目录同名 PDF。');
+      if (!quiet) vscode.window.showInformationMessage('请安装并配置内联 PDF 阅读扩展。');
       return false;
     }
   }
@@ -457,8 +457,8 @@ function activate(context) {
     if (visible) buildOutput.hide(); else buildOutput.show(true);
   });
   register('paperReview.compile', async () => {
-    if (buildBusy || compiler.current) throw new Error('A compile is already running.');
-    if (!client) throw new Error('Open a paper project first.');
+    if (buildBusy || compiler.current) throw new Error('已有编译正在运行。');
+    if (!client) throw new Error('请先打开项目。');
     const profile = selectedProfile(config());
     if (!profile) { vscode.window.showInformationMessage('尚未配置编译方案。请打开 Paper: 编译设置；本次未保存或 Push。'); return; }
     buildBusy = true; buildCancelled = false;
@@ -470,8 +470,8 @@ function activate(context) {
       if (buildCancelled) { buildLogStatus.text = '$(output) 已取消 · 日志'; return { generated: false, status: 'cancelled' }; }
       const pushed = await withDraft('push');
       if (buildCancelled) {
-        buildLogStatus.text = '$(output) Push 已归档 · 已取消编译 · 日志';
-        buildOutput.appendLine('Push 已归档为 Master r' + pushed.masterRevision + '；编译已取消。');
+        buildLogStatus.text = '$(output) Push 已完成 · 已取消编译 · 日志';
+        buildOutput.appendLine('Push 已完成，Master r' + pushed.masterRevision + '；编译已取消。');
         return { generated: false, status: 'cancelled', masterRevision: pushed.masterRevision };
       }
       if (!profile.steps.length) {
@@ -482,7 +482,7 @@ function activate(context) {
       // Compile the real Master in root. A new revision during a pass invalidates the result.
       const snapshot = await client.request('GET', `/v1/revisions/${pushed.masterRevision}`);
       if (buildCancelled) { buildLogStatus.text = '$(output) 已取消编译 · 日志'; return { generated: false, status: 'cancelled', masterRevision: pushed.masterRevision }; }
-      buildOutput.appendLine('\nPush complete. Compiling archived Master r' + pushed.masterRevision);
+      buildOutput.appendLine('\nPush 已完成，正在编译 Master r' + pushed.masterRevision);
       const result = await compiler.compile({ root: projectRoot, masterFile, profile, revision: pushed.masterRevision, text: snapshot.text,
         verifyRevision: async () => {
           const state = await client.request('GET', '/v1/state');
@@ -493,40 +493,40 @@ function activate(context) {
       });
       buildLogStatus.text = result.generated ? '$(output) r' + result.pdfRevision + ' PDF' + (result.status === 'pdf-with-errors' ? ' · 有错误' : '') + ' · 日志' :
         result.status === 'cancelled' ? '$(output) 已取消 · 日志' : '$(error) 未生成新 PDF · 日志';
-      buildLogStatus.tooltip = (result.error ? result.error + '\n' : '') + '点击打开／隐藏编译日志，不会再次编译。';
+      buildLogStatus.tooltip = (result.error ? result.error + '\n' : '') + '点击打开 / 隐藏编译日志。';
       if (result.generated) await openPdf({ quiet: true, reload: true });
-      if (!result.generated && result.status !== 'cancelled') throw new Error('Push 已归档，但编译未生成新 PDF。请查看日志及 root 中的编译产物。' + (result.error || ''));
+      if (!result.generated && result.status !== 'cancelled') throw new Error('Push 已完成，但未生成新 PDF。请查看编译日志及项目根目录中的产物。' + (result.error || ''));
       return result;
     } catch (error) {
-      buildLogStatus.text = '$(error) 编译未完成 · 日志'; buildLogStatus.tooltip = error.message + '\n点击打开／隐藏日志。';
+      buildLogStatus.text = '$(error) 编译未完成 · 日志'; buildLogStatus.tooltip = error.message + '\n点击打开 / 隐藏编译日志。';
       buildOutput.appendLine('未完成：' + error.message);
       throw error;
     } finally { buildBusy = false; compileButton(); await vscode.commands.executeCommand('setContext', 'paperReview.compiling', false); }
   });
   register('paperReview.refresh', () => refreshStatus(true));
   register('paperReview.state', async () => {
-    if (!client) throw new Error('Open a Human Draft first.');
+    if (!client) throw new Error('请先打开 Human Draft。');
     output.clear();
     output.appendLine(JSON.stringify(await client.request('GET', '/v1/state'), null, 2));
     output.show(true);
   });
   async function savedEditor() {
-    if (transitioning) throw new Error('A project is being opened or closed.');
-    if (!client || !uri) throw new Error('Open the Human Draft first.');
+    if (transitioning) throw new Error('正在打开或关闭项目，请稍后重试。');
+    if (!client || !uri) throw new Error('请先打开 Human Draft。');
     const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { viewColumn: vscode.ViewColumn.One, preview: false });
-    if (provider.blocked) throw new Error('Preserve the editor text separately, close and reopen the Draft.');
-    if (editor.document.isDirty && !await editor.document.save() || editor.document.isDirty) throw new Error('Save the Draft before continuing.');
+    if (provider.blocked) throw new Error('请先另存 Human Draft，再关闭并重新打开。');
+    if (editor.document.isDirty && !await editor.document.save() || editor.document.isDirty) throw new Error('请先保存 Human Draft。');
     return editor;
   }
   async function syncResult(editor, version, result) {
     if (result.text === undefined) return;
     try {
       const doc = editor.document;
-      if (doc.version !== version || doc.isDirty) throw new Error('Editor changed during the operation. Preserve it separately and reopen.');
+      if (doc.version !== version || doc.isDirty) throw new Error('操作时 Human Draft 已变化，请另存后重新打开。');
       const selections = editor.selections, visible = editor.visibleRanges[0];
       provider.pendingPull = result;
       const ok = await editor.edit(edit => edit.replace(new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), result.text));
-      if (!ok || !await doc.save() || doc.getText().replace(/\r\n/g, '\n') !== result.text) throw new Error('Editor synchronization failed. Preserve the buffer separately and reopen.');
+      if (!ok || !await doc.save() || doc.getText().replace(/\r\n/g, '\n') !== result.text) throw new Error('Human Draft 同步失败，请另存编辑器内容后重新打开。');
       provider.version = result.draftVersion; provider.pendingPull = undefined;
       editor.selections = selections.map(s => new vscode.Selection(doc.validatePosition(s.anchor), doc.validatePosition(s.active)));
       if (visible) editor.revealRange(doc.validateRange(visible), vscode.TextEditorRevealType.AtTop);
@@ -545,7 +545,7 @@ function activate(context) {
     editor.selection = new vscode.Selection(range.start, range.end); editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
   });
   async function reviewAction(action, item) {
-    if (operation) throw new Error('Another paper operation is in progress.');
+    if (operation) throw new Error('正在处理项目操作，请稍后重试。');
     const editor = await savedEditor();
     await ui.refresh();
     const selection = editor.selection, start = draftOffset(editor.document, selection.start), end = draftOffset(editor.document, selection.end);
@@ -559,21 +559,21 @@ function activate(context) {
       } finally { provider.busy = false; operation = false; await refreshStatus(); }
       return;
     }
-    if (!selected.length) throw new Error('Select a pending review range first.');
-    if (action === 'reject' && selected.length > 1) throw new Error('Reject one complete change at a time.');
+    if (!selected.length) throw new Error('请先选择待审核或需修改的范围。');
+    if (action === 'reject' && selected.length > 1) throw new Error('请一次拒绝一处完整修改。');
     operation = true; provider.busy = true;
     try {
       for (const review of selected) {
         const partial = !item && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
-        if (partial && action === 'reject') throw new Error('Reject the complete highlighted change, or edit the selected word manually; its original text is not uniquely determined.');
+        if (partial && action === 'reject') throw new Error('无法单独撤回所选片段，请拒绝整处高亮修改或手动编辑。');
         let rejectWholeEvent = false;
-        if (action === 'reject' && review.origin === 'manual') throw new Error('手动标记没有可撤回的 AI 修改。请直接编辑或批准。');
-        if (action === 'reject' && review.origin === 'initial') throw new Error('初始正文没有可撤回的旧版本。请直接编辑、标记 Needs Fix 或批准。');
+        if (action === 'reject' && review.origin === 'manual') throw new Error('手动标记没有可撤回的 AI 修改，请直接编辑或通过审核。');
+        if (action === 'reject' && review.origin === 'initial') throw new Error('初始正文没有可撤回的版本，请直接编辑、标红或通过审核。');
         if (action === 'reject' && (review.original === null || review.rejectionMode === 'event')) {
-          const chosen = await vscode.window.showQuickPick(['Reject the complete original change', 'Cancel'], {
-            title: 'This action restores the original change, including other fragments from that change.'
+          const chosen = await vscode.window.showQuickPick(['拒绝完整修改', '取消'], {
+            title: '将撤回同一次修改的全部片段。'
           });
-          if (chosen !== 'Reject the complete original change') return;
+          if (chosen !== '拒绝完整修改') return;
           rejectWholeEvent = true;
         }
         const version = editor.document.version;
@@ -587,11 +587,11 @@ function activate(context) {
   for (const [command, action] of [['approve', 'approve'], ['unreviewed', 'unreviewed'], ['needsFix', 'needsFix'], ['reject', 'reject']]) register(`paperReview.${command}`, item => reviewAction(action, item));
   async function saveIssueEditors() {
     for (const doc of vscode.workspace.textDocuments.filter(doc => !doc.isClosed && doc.uri.scheme === 'paper-issue' && doc.uri.authority === uri?.authority)) {
-      if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('Save the Issue editor before continuing.');
+      if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('请先保存 Issue 编辑页。');
     }
   }
   async function selectedIssue(item) {
-    if (!client) throw new Error('Open a paper project first.');
+    if (!client) throw new Error('请先打开项目。');
     if (item?.issue) return item.issue;
     const active = vscode.window.activeTextEditor?.document.uri;
     const issues = await client.request('GET', '/v1/issues');
@@ -613,7 +613,7 @@ function activate(context) {
     const document = existing || await vscode.workspace.openTextDocument(issueFs.resource(uri, issue));
     await vscode.window.showTextDocument(await vscode.languages.setTextDocumentLanguage(document, 'markdown'),
       { viewColumn: vscode.ViewColumn.One, preview: false });
-    vscode.window.setStatusBarMessage('Issue：首行编辑标题，下方自由换行。Ctrl+S 保存到 Draft，Push 后提交。', 7000);
+    vscode.window.setStatusBarMessage('Issue：首行填写标题，下方填写描述。Ctrl+S 保存到 Human Draft，Push 后提交。', 7000);
   }
   async function issueInput(item, mode = 'create') {
     if (mode === 'rebind') await saveIssueEditors();
@@ -623,12 +623,12 @@ function activate(context) {
     const editor = await savedEditor(), version = editor.document.version;
     const offset = draftOffset(editor.document, editor.selection.active);
     const binding = (await vscode.window.showQuickPick([
-      { label: '当前行', value: 'line', description: '仅标记光标所在的源码行（默认）' },
-      { label: '当前段落', value: 'paragraph', description: '最多一个普通段落；标题和环境内回退为当前行' },
-      ...(mode === 'create' ? [{ label: 'General Issue', value: 'general', description: '不绑定正文' }] : [])
+      { label: '当前行', value: 'line', description: '绑定光标所在的源码行（默认）' },
+      { label: '当前段落', value: 'paragraph', description: '绑定一个普通段落；标题或环境中使用当前行' },
+      ...(mode === 'create' ? [{ label: '独立 Issue', value: 'general', description: '不绑定正文' }] : [])
     ], { title: 'Issue 绑定范围' }))?.value;
     if (!binding) return;
-    const title = issue?.title || await vscode.window.showInputBox({ title: 'Issue 标题（描述在编辑页中填写）', ignoreFocusOut: true });
+    const title = issue?.title || await vscode.window.showInputBox({ title: 'Issue 标题', ignoreFocusOut: true });
     if (!title?.trim()) return;
     if (editor.document.version !== version || editor.document.isDirty) throw new Error('正文已变化，请重新选择 Issue 位置。');
     const result = await client.request('POST', '/v1/issues', { id: issue?.id, expectedVersion: issue?.version, title,
@@ -645,7 +645,7 @@ function activate(context) {
     const issue = await selectedIssue(item); if (!issue) return;
     await saveIssueEditors(); await savedEditor();
     const current = (await client.request('GET', '/v1/issues')).find(i => i.id === issue.id);
-    if (!current) throw new Error('Issue no longer exists.');
+    if (!current) throw new Error('Issue 已删除。');
     const result = await client.request('POST', '/v1/issues', { ...current, expectedVersion: current.version,
       status: current.status === 'open' ? 'resolved' : 'open', expectedDraftVersion: provider.version });
     await issueFs.accept(result.issue, uri.authority);
@@ -661,14 +661,14 @@ function activate(context) {
     const state = await client.request('GET', '/v1/state');
     await client.request('POST', '/v1/issues', { action: 'delete', id: issue.id, expectedVersion, expectedDraftVersion: state.draftVersion });
     await refreshStatus(true);
-    vscode.window.setStatusBarMessage('Issue 已从 Draft 删除，Push 后提交。', 5000);
+    vscode.window.setStatusBarMessage('Issue 已从 Human Draft 删除，Push 后提交。', 5000);
   });
   async function locateIssue(item) {
     const issue = await selectedIssue(item); if (!issue) return;
     await savedEditor(); // Save first, then read the remapped anchor rather than a stale tree item.
     const current = (await client.request('GET', '/v1/issues')).find(value => value.id === issue.id);
     if (!current) throw new Error('Issue 已删除。');
-    if (!current.anchor) throw new Error('此 Issue 已无正文位置，可用右键 Edit Issue 查看或重新绑定。');
+    if (!current.anchor) throw new Error('此 Issue 未绑定正文，可右键编辑或重新绑定。');
     await vscode.commands.executeCommand('paperReview.locate', current);
   }
   register('paperReview.showIssue', async item => {
@@ -678,7 +678,7 @@ function activate(context) {
   });
   register('paperReview.locateIssue', locateIssue);
   async function chooseConflict(item) {
-    if (!client) throw new Error('Open the Human Draft first.');
+    if (!client) throw new Error('请先打开 Human Draft。');
     if (item?.issue?.conflictId) return item.issue.conflictId;
     const conflicts = (await client.request('GET', '/v1/state')).conflicts;
     const state = await client.request('GET', '/v1/state');
@@ -690,26 +690,26 @@ function activate(context) {
   async function openConflictEditor(id) {
     const prefix = path.join(client.root, '.paper-manager', 'conflicts', id) + path.sep;
     for (const doc of vscode.workspace.textDocuments.filter(doc => doc.uri.scheme === 'file' && doc.uri.fsPath.startsWith(prefix) && path.basename(doc.uri.fsPath) === 'result.tex')) {
-      if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('Save the conflict result before reopening.');
+      if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('请先保存合并结果，再重新打开。');
     }
     const prepared = await client.request('POST', `/v1/conflicts/${id}/prepare`, {});
     const args = ['--merge', prepared.paths.current, prepared.paths.incoming, prepared.paths.base, prepared.paths.result]
       .map(value => ({ value, quoting: vscode.ShellQuoting.Strong }));
-    const task = new vscode.Task({ type: 'paper-review-merge' }, vscode.TaskScope.Workspace, 'Resolve paper conflict', 'paper-review',
+    const task = new vscode.Task({ type: 'paper-review-merge' }, vscode.TaskScope.Workspace, '处理论文冲突', 'paper-review',
       new vscode.ShellExecution('code', args, { cwd: client.root }));
     task.presentationOptions = { reveal: vscode.TaskRevealKind.Never, panel: vscode.TaskPanelKind.Dedicated };
     await vscode.tasks.executeTask(task);
     preparedConflictId = id;
     submitConflictStatus.show();
     await vscode.commands.executeCommand('setContext', 'paperReview.conflictPrepared', true);
-    output.appendLine(`Edit and save ${prepared.paths.result}; then click 提交解决结果并更新正文.`);
+    output.appendLine(`合并结果：${prepared.paths.result}。保存后点击“提交合并结果”。`);
   }
   register('paperReview.resolveConflict', async item => {
     const id = await chooseConflict(item); if (id) await openConflictEditor(id);
   });
   register('paperReview.submitConflict', async item => {
-    if (!client) throw new Error('Open the Human Draft first.');
-    if (operation || provider.busy) throw new Error('Another paper operation is in progress.');
+    if (!client) throw new Error('请先打开 Human Draft。');
+    if (operation || provider.busy) throw new Error('正在处理项目操作，请稍后重试。');
     const stateBefore = await client.request('GET', '/v1/state');
     const active = vscode.window.activeTextEditor?.document.uri;
     const fromFile = active?.scheme === 'file' && stateBefore.conflicts.find(c => active.fsPath === path.join(client.root, c.preparedDirectory || c.directory, 'result.tex'))?.id;
@@ -720,7 +720,7 @@ function activate(context) {
     try {
       // Merge Editor is backed by real files: save all dirty resolution resources.
       for (const doc of vscode.workspace.textDocuments.filter(d => d.uri.scheme === 'file' && d.uri.fsPath.startsWith(path.join(client.root, '.paper-manager', 'conflicts', id) + path.sep))) {
-        if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('Save the conflict result first.');
+        if (doc.isDirty && !await doc.save() || doc.isDirty) throw new Error('请先保存合并结果。');
       }
       const state = await client.request('GET', '/v1/state');
       const result = await client.request('POST', `/v1/conflicts/${id}/resolve`, { expectedMasterRevision: state.masterRevision, expectedDraftVersion: provider.version, syncHuman: true });
@@ -739,22 +739,22 @@ function activate(context) {
     }
   });
   register('paperReview.snapshot', async () => {
-    if (!client) throw new Error('Open the Human Draft first.');
-    const mode = await vscode.window.showQuickPick(['Save current Master only', 'Select explicit project files']);
+    if (!client) throw new Error('请先打开 Human Draft。');
+    const mode = await vscode.window.showQuickPick(['仅保存 Master', '选择项目文件']);
     if (!mode) return;
     let files = [masterFile];
-    if (mode === 'Select explicit project files') {
-      const chosen = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFolders: false, defaultUri: vscode.Uri.file(client.root), openLabel: 'Files to commit' });
+    if (mode === '选择项目文件') {
+      const chosen = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFolders: false, defaultUri: vscode.Uri.file(client.root), openLabel: '选择提交文件' });
       if (!chosen?.length) return;
       files = chosen.map(file => path.relative(client.root, file.fsPath));
     }
-    const message = await vscode.window.showInputBox({ title: 'Save Version: commit message' }); if (!message?.trim()) return;
+    const message = await vscode.window.showInputBox({ title: 'Git 提交说明' }); if (!message?.trim()) return;
     const state = await client.request('GET', '/v1/state');
     const result = await client.request('POST', '/v1/snapshot', { files, message, expectedMasterRevision: state.masterRevision });
-    vscode.window.showInformationMessage(`Saved Master version ${result.commit.slice(0, 8)}`);
+    vscode.window.showInformationMessage(`已保存 Git 阶段版本：${result.commit.slice(0, 8)}`);
   });
   function metadataClient(resource) {
-    if (!client || resource.authority !== uri.authority) throw new Error('Open this project before viewing its history.');
+    if (!client || resource.authority !== uri.authority) throw new Error('请先打开此历史记录所属项目。');
     return client;
   }
   function metadataUri(scheme, resourcePath) {
@@ -767,16 +767,16 @@ function activate(context) {
   } };
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('paper-event', eventProvider));
   register('paperReview.events', async () => {
-    if (!client) throw new Error('Open the Human Draft first.');
+    if (!client) throw new Error('请先打开 Human Draft。');
     const events = await client.request('GET', '/v1/events');
     const chosen = await vscode.window.showQuickPick(events.slice().reverse().map(event => ({ label: `r${event.revision} · ${event.type}`, description: (event.after || event.before).replace(/\s+/g, ' ').slice(0, 80), event })));
-    if (chosen) await vscode.commands.executeCommand('vscode.diff', metadataUri('paper-event', `/${chosen.event.id}/before`), metadataUri('paper-event', `/${chosen.event.id}/after`), 'AI Change Event');
+    if (chosen) await vscode.commands.executeCommand('vscode.diff', metadataUri('paper-event', `/${chosen.event.id}/before`), metadataUri('paper-event', `/${chosen.event.id}/after`), 'AI 修改历史');
   });
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('paper-revision', {
     provideTextDocumentContent: async resource => (await metadataClient(resource).request('GET', `/v1/revisions/${Number(resource.path.slice(1))}`)).text
   }));
   async function chooseRevision() {
-    if (!client) throw new Error('Open the Human Draft first.');
+    if (!client) throw new Error('请先打开 Human Draft。');
     const revisions = await client.request('GET', '/v1/revisions');
     return (await vscode.window.showQuickPick(revisions.slice().reverse().map(revision => ({
       label: `r${revision.revision}`, description: revision.actor, revision: revision.revision

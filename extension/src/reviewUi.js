@@ -16,19 +16,19 @@ class ReviewUi {
     this.issueProvider = { onDidChangeTreeData: this.issueEmitter.event, getTreeItem: item => item, getChildren: parent => {
       if (!this.client) return [];
       if (!parent) return ['anchored', 'general'].map(type => {
-        const item = new vscode.TreeItem(type === 'anchored' ? 'Anchored Issues' : 'General Issues', vscode.TreeItemCollapsibleState.Expanded); item.group = type; return item;
+        const item = new vscode.TreeItem(type === 'anchored' ? '绑定 Issue' : '独立 Issue', vscode.TreeItemCollapsibleState.Expanded); item.group = type; return item;
       });
       return this.issues.filter(issue => issue.type === parent.group && !(issue.conflictId && issue.status === 'resolved')).map(issue => {
         const item = new vscode.TreeItem((issue.status === 'resolved' ? '✓ ' : '') + issue.title);
         item.issue = issue; item.tooltip = issue.description; item.contextValue = issue.conflictId ? 'issueConflict' : 'issue';
-        item.command = { command: 'paperReview.showIssue', title: 'Show Issue', arguments: [item] }; return item;
+        item.command = { command: 'paperReview.showIssue', title: '查看 Issue', arguments: [item] }; return item;
       });
     } };
     // Preserve the original view ID so restored layouts do not show an orphaned Review placeholder.
     // Keep the 0.3.1 ID registered as a hidden alias for layouts created by that candidate.
     this.trees = ['paperReview.reviews', 'paperReview.outline'].map(id => {
       const tree = vscode.window.createTreeView(id, { treeDataProvider: this.outlineProvider });
-      tree.title = 'Paper 章节'; return tree;
+      tree.title = '章节'; return tree;
     });
     this.trees.push(vscode.window.createTreeView('paperReview.issues', { treeDataProvider: this.issueProvider }));
   }
@@ -39,7 +39,7 @@ class ReviewUi {
     for (const heading of headings(text.replace(/\r\n/g, '\n'))) {
       const item = new vscode.TreeItem(heading.title, vscode.TreeItemCollapsibleState.None);
       item.children = []; item.level = heading.level; item.contextValue = 'paperHeading';
-      item.command = { command: 'paperReview.locate', title: 'Locate heading', arguments: [heading] };
+      item.command = { command: 'paperReview.locate', title: '定位章节', arguments: [heading] };
       while (stack.length && stack.at(-1).level >= item.level) stack.pop();
       const parent = stack.at(-1);
       if (parent) parent.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
@@ -77,8 +77,8 @@ class ReviewUi {
       let reviews = [], issues = [];
       // Preview-only projection: approving still saves and checks server versions.
       try { ({ reviews, issues } = this.projected(editor.document.getText())); } catch { /* A diff budget failure must never paint stale offsets. */ }
-      editor.setDecorations(this.yellow, reviews.filter(r => r.status === 'unreviewed').map(r => ({ range: range(r), hoverMessage: r.origin === 'initial' ? 'Initial text awaiting review' : r.origin === 'manual' ? 'Manually marked awaiting review' : 'AI change awaiting review' })));
-      editor.setDecorations(this.red, reviews.filter(r => r.status === 'needsFix').map(r => ({ range: range(r), hoverMessage: 'Needs Fix' })));
+      editor.setDecorations(this.yellow, reviews.filter(r => r.status === 'unreviewed').map(r => ({ range: range(r), hoverMessage: r.origin === 'initial' ? '初始正文：待审核' : r.origin === 'manual' ? '手动标记：待审核' : 'AI 修改：待审核' })));
+      editor.setDecorations(this.red, reviews.filter(r => r.status === 'needsFix').map(r => ({ range: range(r), hoverMessage: '需修改' })));
       editor.setDecorations(this.issueMark, issues.filter(i => i.type === 'anchored' && i.status === 'open').map(i => ({ range: range(i.anchor), hoverMessage: i.title })));
     }
   }
