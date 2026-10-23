@@ -1,0 +1,1171 @@
+{
+  "name": "paper-review-tool",
+  "displayName": "Paper Review Tool",
+  "description": "单文件 LaTeX 版本管理、AI 审计、Issue 与可配置本地编译。",
+  "version": "0.3.9",
+  "publisher": "local-paper-tools",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.103.2"
+  },
+  "main": "./src/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onFileSystem:paper",
+    "onStartupFinished",
+    "onFileSystem:paper-issue"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "paper-build-log",
+        "aliases": [
+          "Paper Build Log"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "paperReview.open",
+        "title": "Paper: Open Human Draft"
+      },
+      {
+        "command": "paperReview.openProject",
+        "title": "Paper: 初始化 / 打开 / 切换项目",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "paperReview.closeProject",
+        "title": "Paper: 关闭项目",
+        "icon": "$(close)"
+      },
+      {
+        "command": "paperReview.copyCliPath",
+        "title": "Paper: Copy AI CLI Path"
+      },
+      {
+        "command": "paperReview.push",
+        "title": "Paper: Push",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "paperReview.compile",
+        "title": "Paper: Push + 编译",
+        "icon": "$(play)",
+        "enablement": "paperReview.projectOpen && !paperReview.compiling"
+      },
+      {
+        "command": "paperReview.openChatGPTExternal",
+        "title": "Paper: 在默认浏览器打开 ChatGPT"
+      },
+      {
+        "command": "paperReview.copyChatGPTScript",
+        "title": "Paper: 复制 ChatGPT LaTeX 源码模式脚本"
+      },
+      {
+        "command": "paperReview.openPdf",
+        "title": "Paper: 打开现有 PDF",
+        "icon": "$(file-pdf)",
+        "enablement": "paperReview.projectOpen"
+      },
+      {
+        "command": "paperReview.cancelCompile",
+        "title": "Paper: 取消编译",
+        "icon": "$(debug-stop)",
+        "enablement": "paperReview.compiling"
+      },
+      {
+        "command": "paperReview.buildLog",
+        "title": "Paper: 打开 / 隐藏编译日志",
+        "icon": "$(output)"
+      },
+      {
+        "command": "paperReview.state",
+        "title": "Paper: Show Status and Conflicts"
+      },
+      {
+        "command": "paperReview.refresh",
+        "title": "Paper: Refresh Outline and Issues",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "paperReview.locate",
+        "title": "Paper: Locate"
+      },
+      {
+        "command": "paperReview.approve",
+        "title": "Paper: Approve Review"
+      },
+      {
+        "command": "paperReview.unreviewed",
+        "title": "Paper: 标黄 / 待审核"
+      },
+      {
+        "command": "paperReview.needsFix",
+        "title": "Paper: Mark Needs Fix"
+      },
+      {
+        "command": "paperReview.reject",
+        "title": "Paper: Reject Change"
+      },
+      {
+        "command": "paperReview.createIssue",
+        "title": "Paper: Create Issue",
+        "icon": "$(add)"
+      },
+      {
+        "command": "paperReview.editIssue",
+        "title": "Paper: Edit Issue"
+      },
+      {
+        "command": "paperReview.rebindIssue",
+        "title": "Paper: Rebind Issue to Current Line / Paragraph"
+      },
+      {
+        "command": "paperReview.toggleIssue",
+        "title": "Paper: Close / Reopen Issue"
+      },
+      {
+        "command": "paperReview.showIssue",
+        "title": "Paper: Show Issue"
+      },
+      {
+        "command": "paperReview.resolveConflict",
+        "title": "Paper: Open Conflict in Merge Editor",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "paperReview.submitConflict",
+        "title": "Paper: 提交解决结果并更新正文",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "paperReview.snapshot",
+        "title": "Paper: Save Master Version to Git"
+      },
+      {
+        "command": "paperReview.events",
+        "title": "Paper: Browse AI Change Events"
+      },
+      {
+        "command": "paperReview.history",
+        "title": "Paper: Browse Revision History"
+      },
+      {
+        "command": "paperReview.restore",
+        "title": "Paper: Restore Historical Revision as New Master"
+      },
+      {
+        "command": "paperReview.deleteIssue",
+        "title": "Paper: Delete Issue",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "paperReview.locateIssue",
+        "title": "Paper: 定位 Issue",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "paperReview.showOutline",
+        "title": "Paper: 显示章节目录",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "paperReview.reloadPdf",
+        "title": "Paper: 重新加载现有 PDF（不编译）",
+        "icon": "$(refresh)",
+        "enablement": "paperReview.projectOpen"
+      },
+      {
+        "command": "paperReview.updateOnly",
+        "title": "Paper: Update Only（丢弃本地修改）",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "paperReview.mergeUpdate",
+        "title": "Paper: Merge Update（Push + 合并 + 更新）",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "paperReview.copyAgentPrompt",
+        "title": "Paper: Agent Instruction",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "paperReview.openAgent",
+        "title": "Paper: 打开默认 Agent",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "paperReview.openWeb",
+        "title": "Paper: 打开默认 Web",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "paperReview.selectCompileProfile",
+        "title": "Paper: 编译设置",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "paperReview.configureAgent",
+        "title": "Paper: 配置默认 Agent"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "paperReview.push",
+          "when": "resourceScheme == paper",
+          "group": "navigation@1"
+        },
+        {
+          "command": "paperReview.mergeUpdate",
+          "when": "resourceScheme == paper",
+          "group": "navigation@2"
+        },
+        {
+          "command": "paperReview.compile",
+          "when": "resourceScheme == paper && !paperReview.compiling",
+          "group": "navigation@3"
+        },
+        {
+          "command": "paperReview.cancelCompile",
+          "when": "resourceScheme == paper && paperReview.compiling",
+          "group": "navigation@3"
+        },
+        {
+          "command": "paperReview.updateOnly",
+          "when": "resourceScheme == paper",
+          "group": "1_document@0"
+        },
+        {
+          "command": "paperReview.openPdf",
+          "when": "resourceScheme == paper",
+          "group": "1_document@1"
+        },
+        {
+          "command": "paperReview.reloadPdf",
+          "when": "resourceScheme == paper",
+          "group": "1_document@2"
+        },
+        {
+          "command": "paperReview.selectCompileProfile",
+          "when": "resourceScheme == paper",
+          "group": "2_build@0"
+        },
+        {
+          "command": "paperReview.buildLog",
+          "when": "resourceScheme == paper",
+          "group": "2_build@1"
+        },
+        {
+          "command": "paperReview.openAgent",
+          "when": "resourceScheme == paper",
+          "group": "3_agent@0"
+        },
+        {
+          "command": "paperReview.openWeb",
+          "when": "resourceScheme == paper",
+          "group": "3_agent@1"
+        },
+        {
+          "command": "paperReview.copyAgentPrompt",
+          "when": "resourceScheme == paper",
+          "group": "3_agent@2"
+        },
+        {
+          "command": "paperReview.openProject",
+          "when": "resourceScheme == paper",
+          "group": "4_project@1"
+        },
+        {
+          "command": "paperReview.locateIssue",
+          "when": "resourceScheme == paper-issue",
+          "group": "navigation@1"
+        },
+        {
+          "command": "paperReview.deleteIssue",
+          "when": "resourceScheme == paper-issue",
+          "group": "issue@9"
+        },
+        {
+          "command": "paperReview.submitConflict",
+          "when": "paperReview.conflictPrepared && resourceFilename == result.tex",
+          "group": "navigation@0"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "paperReview.approve",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@1"
+        },
+        {
+          "command": "paperReview.unreviewed",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@1.5"
+        },
+        {
+          "command": "paperReview.needsFix",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@2"
+        },
+        {
+          "command": "paperReview.reject",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@3"
+        },
+        {
+          "command": "paperReview.createIssue",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@4"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "paperReview.openProject",
+          "when": "view == paperReview.reviews",
+          "group": "navigation@1"
+        },
+        {
+          "command": "paperReview.refresh",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "navigation@2"
+        },
+        {
+          "command": "paperReview.createIssue",
+          "when": "paperReview.projectOpen && view == paperReview.issues",
+          "group": "navigation@1"
+        },
+        {
+          "command": "paperReview.refresh",
+          "when": "paperReview.projectOpen && view == paperReview.issues",
+          "group": "navigation@2"
+        },
+        {
+          "command": "paperReview.push",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "1_document@0"
+        },
+        {
+          "command": "paperReview.mergeUpdate",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "1_document@1"
+        },
+        {
+          "command": "paperReview.updateOnly",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "1_document@2"
+        },
+        {
+          "command": "paperReview.openPdf",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "1_document@3"
+        },
+        {
+          "command": "paperReview.reloadPdf",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "1_document@4"
+        },
+        {
+          "command": "paperReview.selectCompileProfile",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "2_build@0"
+        },
+        {
+          "command": "paperReview.buildLog",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "2_build@1"
+        },
+        {
+          "command": "paperReview.openAgent",
+          "when": "view == paperReview.reviews",
+          "group": "3_agent@0"
+        },
+        {
+          "command": "paperReview.openWeb",
+          "when": "view == paperReview.reviews",
+          "group": "3_agent@1"
+        },
+        {
+          "command": "paperReview.copyAgentPrompt",
+          "when": "view == paperReview.reviews",
+          "group": "3_agent@2"
+        },
+        {
+          "command": "paperReview.copyChatGPTScript",
+          "when": "view == paperReview.reviews",
+          "group": "3_agent@3"
+        },
+        {
+          "command": "paperReview.openChatGPTExternal",
+          "when": "view == paperReview.reviews",
+          "group": "3_agent@4"
+        },
+        {
+          "command": "paperReview.state",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "4_project@0"
+        },
+        {
+          "command": "paperReview.events",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "4_project@1"
+        },
+        {
+          "command": "paperReview.history",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "4_project@2"
+        },
+        {
+          "command": "paperReview.closeProject",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "4_project@3"
+        },
+        {
+          "command": "paperReview.resolveConflict",
+          "when": "paperReview.projectOpen && view == paperReview.issues",
+          "group": "navigation@0"
+        },
+        {
+          "command": "paperReview.submitConflict",
+          "when": "paperReview.conflictPrepared && view == paperReview.issues",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "paperReview.openProject",
+          "when": "resourceScheme == file && resourceExtname == .tex",
+          "group": "paperReview"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "paperReview.editIssue",
+          "when": "viewItem =~ /^issue/",
+          "group": "issue@1"
+        },
+        {
+          "command": "paperReview.toggleIssue",
+          "when": "viewItem =~ /^issue/",
+          "group": "issue@2"
+        },
+        {
+          "command": "paperReview.rebindIssue",
+          "when": "viewItem =~ /^issue/",
+          "group": "issue@3"
+        },
+        {
+          "command": "paperReview.resolveConflict",
+          "when": "viewItem == issueConflict",
+          "group": "issue@4"
+        },
+        {
+          "command": "paperReview.submitConflict",
+          "when": "viewItem == issueConflict",
+          "group": "issue@5"
+        },
+        {
+          "command": "paperReview.deleteIssue",
+          "when": "viewItem =~ /^issue/",
+          "group": "inline@9"
+        },
+        {
+          "command": "paperReview.locateIssue",
+          "when": "viewItem =~ /^issue/",
+          "group": "inline@1"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "paperReview",
+          "title": "Paper",
+          "icon": "resources/paper.svg"
+        }
+      ]
+    },
+    "views": {
+      "paperReview": [
+        {
+          "id": "paperReview.reviews",
+          "name": "Paper 章节"
+        },
+        {
+          "id": "paperReview.outline",
+          "name": "Paper 章节",
+          "when": "false"
+        },
+        {
+          "id": "paperReview.issues",
+          "name": "Issues"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "paperReview.reviews",
+        "when": "!paperReview.projectOpen",
+        "contents": "选择论文 .tex 文件即可开始；所在文件夹自动作为项目根目录。\n[初始化 / 打开项目](command:paperReview.openProject)"
+      },
+      {
+        "view": "paperReview.issues",
+        "when": "!paperReview.projectOpen",
+        "contents": "打开项目后查看和管理 Issue。\n[初始化 / 打开项目](command:paperReview.openProject)"
+      }
+    ],
+    "configuration": {
+      "title": "Paper Review",
+      "properties": {
+        "paperReview.agentTargets": {
+          "type": "array",
+          "default": [],
+          "description": "自定义 Agent 入口；与已安装的类似扩展合并显示。command 为 VS Code 命令 ID。",
+          "restricted": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "extensionId": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array"
+              }
+            }
+          },
+          "included": false
+        },
+        "paperReview.webTargets": {
+          "type": "array",
+          "default": [
+            {
+              "name": "ChatGPT",
+              "url": "https://chatgpt.com/"
+            },
+            {
+              "name": "Claude",
+              "url": "https://claude.ai/"
+            }
+          ],
+          "description": "Web 下拉菜单的名称和 http(s) 网址。仅 ChatGPT 自动启用已有 LaTeX 源码模式脚本。",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "url"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?://"
+              }
+            }
+          },
+          "included": false
+        },
+        "paperReview.compileProfile": {
+          "type": "string",
+          "enum": [
+            "pdflatex",
+            "pdflatex-bibtex",
+            "xelatex",
+            "xelatex-bibtex",
+            "other",
+            "none"
+          ],
+          "enumItemLabels": [
+            "pdf",
+            "pdf+bib",
+            "xe",
+            "xe+bib",
+            "其他",
+            "不编译"
+          ],
+          "default": "pdflatex-bibtex",
+          "description": "编译引擎。",
+          "order": 31,
+          "restricted": true
+        },
+        "paperReview.compileProfiles": {
+          "type": "array",
+          "default": [
+            {
+              "id": "pdflatex",
+              "name": "pdfLaTeX（单遍）",
+              "steps": [
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "pdflatex-bibtex",
+              "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+              "steps": [
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "bibtex",
+                  "args": [
+                    "${stem}"
+                  ],
+                  "ifBibliography": true
+                },
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "xelatex",
+              "name": "XeLaTeX（单遍）",
+              "steps": [
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "xelatex-bibtex",
+              "name": "XeLaTeX + BibTeX（三遍 LaTeX）",
+              "steps": [
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "bibtex",
+                  "args": [
+                    "${stem}"
+                  ],
+                  "ifBibliography": true
+                },
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "none",
+              "name": "不编译（纯 .tex 编辑）",
+              "steps": []
+            }
+          ],
+          "description": "命名编译方案。每步单独启动 command，args 按参数传递，不经 shell。支持 ${file}（主文件名）、${stem}（无扩展名）、${root}（项目目录）。空 steps 表示不编译。",
+          "restricted": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "steps"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "command",
+                    "args"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "args": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "ifBibliography": {
+                      "type": "boolean",
+                      "default": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "included": false
+        },
+        "paperReview.fixChatGPTWebLatex": {
+          "type": "boolean",
+          "default": true,
+          "title": "修复chatgpt web latex编译失败报错",
+          "description": "仅适用于 ChatGPT。",
+          "order": 22
+        },
+        "paperReview.defaultAgent": {
+          "type": "string",
+          "enum": [
+            "codex",
+            "claude-code",
+            "other"
+          ],
+          "enumItemLabels": [
+            "Codex",
+            "Claude Code",
+            "其他"
+          ],
+          "default": "codex",
+          "description": "默认 Agent。",
+          "order": 10
+        },
+        "paperReview.customAgent": {
+          "type": "object",
+          "required": [
+            "name",
+            "command"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extensionId": {
+              "type": "string"
+            },
+            "args": {
+              "type": "array"
+            }
+          },
+          "default": {
+            "name": "Codex",
+            "extensionId": "openai.chatgpt",
+            "command": "chatgpt.newCodexPanel"
+          },
+          "restricted": true,
+          "order": 110,
+          "markdownDescription": "其他 Agent。[检测已安装 Agent](command:paperReview.configureAgent)"
+        },
+        "paperReview.defaultWeb": {
+          "type": "string",
+          "enum": [
+            "gpt",
+            "claude",
+            "other"
+          ],
+          "enumItemLabels": [
+            "GPT",
+            "Claude",
+            "其他"
+          ],
+          "default": "gpt",
+          "description": "默认 Web。",
+          "order": 20
+        },
+        "paperReview.customWeb": {
+          "type": "object",
+          "required": [
+            "name",
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https?://"
+            }
+          },
+          "default": {
+            "name": "ChatGPT Web",
+            "url": "https://chatgpt.com/"
+          },
+          "description": "其他网页。",
+          "order": 120
+        },
+        "paperReview.paperCompile": {
+          "type": "string",
+          "enum": [
+            "windows",
+            "mac",
+            "other"
+          ],
+          "enumItemLabels": [
+            "默认 Windows",
+            "默认 macOS",
+            "其他"
+          ],
+          "default": "windows",
+          "description": "首次按本机系统自动选择。",
+          "order": 30,
+          "scope": "machine",
+          "restricted": true
+        },
+        "paperReview.customCompile": {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "steps"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "command",
+                  "args"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "ifBibliography": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "id": "pdflatex-bibtex",
+            "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+            "steps": [
+              {
+                "command": "pdflatex",
+                "args": [
+                  "-interaction=nonstopmode",
+                  "-file-line-error",
+                  "-no-shell-escape",
+                  "${file}"
+                ]
+              },
+              {
+                "command": "bibtex",
+                "args": [
+                  "${stem}"
+                ],
+                "ifBibliography": true
+              },
+              {
+                "command": "pdflatex",
+                "args": [
+                  "-interaction=nonstopmode",
+                  "-file-line-error",
+                  "-no-shell-escape",
+                  "${file}"
+                ]
+              },
+              {
+                "command": "pdflatex",
+                "args": [
+                  "-interaction=nonstopmode",
+                  "-file-line-error",
+                  "-no-shell-escape",
+                  "${file}"
+                ]
+              }
+            ]
+          },
+          "description": "其他方案的名称和命令步骤。",
+          "restricted": true,
+          "order": 131
+        },
+        "paperReview.agentInstruction": {
+          "type": "string",
+          "default": "Pull: POST http://127.0.0.1:{{port}}/v1/ai/pull\n请求体：空。返回：text/plain，编辑文件完整路径。\n\nPush: POST http://127.0.0.1:{{port}}/v1/ai/push\nContent-Type: application/json\nJSON 字段：file（string，Pull 返回的完整路径）。",
+          "description": "可编辑前后文；{{port}} 自动填入当前端口。",
+          "editPresentation": "multilineText",
+          "order": 40
+        },
+        "paperReview.customCompileProfiles": {
+          "type": "array",
+          "default": [
+            {
+              "id": "pdflatex",
+              "name": "pdfLaTeX（单遍）",
+              "steps": [
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "pdflatex-bibtex",
+              "name": "pdfLaTeX + BibTeX（三遍 LaTeX）",
+              "steps": [
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "bibtex",
+                  "args": [
+                    "${stem}"
+                  ],
+                  "ifBibliography": true
+                },
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "pdflatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "xelatex",
+              "name": "XeLaTeX（单遍）",
+              "steps": [
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "xelatex-bibtex",
+              "name": "XeLaTeX + BibTeX（三遍 LaTeX）",
+              "steps": [
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "bibtex",
+                  "args": [
+                    "${stem}"
+                  ],
+                  "ifBibliography": true
+                },
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                },
+                {
+                  "command": "xelatex",
+                  "args": [
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-no-shell-escape",
+                    "${file}"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "none",
+              "name": "不编译（纯 .tex 编辑）",
+              "steps": []
+            }
+          ],
+          "description": "其他平台的命名编译方案。",
+          "restricted": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "steps"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "command",
+                    "args"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "args": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "ifBibliography": {
+                      "type": "boolean",
+                      "default": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "included": true,
+          "order": 130
+        }
+      }
+    }
+  },
+  "paperReviewBuild": "0.3.9r3"
+}

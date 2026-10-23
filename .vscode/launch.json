@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Paper Review Extension",
+    "type": "extensionHost",
+    "request": "launch",
+    "preLaunchTask": "Prepare paper extension runtime",
+    "args": ["--disable-extensions", "--extensionDevelopmentPath=${workspaceFolder}/extension"]
+  }]
+}

@@ -1,0 +1,14 @@
+node_modules/
+.npm-cache/
+tests/.work/
+extension/runtime/
+.vscode-test/
+.paper-manager/
+*.vsix
+dist/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log

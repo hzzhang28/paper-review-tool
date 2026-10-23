@@ -1,0 +1,27 @@
+{
+  "name": "paper-review-tool",
+  "version": "0.3.9-r3",
+  "private": true,
+  "bin": {
+    "paperctl": "server/src/cli.js"
+  },
+  "description": "Single-file paper versions, AI review, Issues and a VS Code managed service",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node server/src/server.js",
+    "paperctl": "node server/src/cli.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.js",
+    "package:extension": "node scripts/package-extension.js",
+    "package:vsix": "node scripts/build-vsix.js",
+    "check:toolchain": "node scripts/check-toolchain.js"
+  },
+  "dependencies": {
+    "diff": "8.0.2"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0"
+  }
+}

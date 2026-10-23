@@ -1,0 +1,7 @@
+**
+!package.json
+!README.md
+!src/**
+!resources/**
+!runtime/**
+runtime/pdfjs/**

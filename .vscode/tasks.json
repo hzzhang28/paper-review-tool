@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [{
+    "label": "Prepare paper extension runtime",
+    "type": "process",
+    "command": "node",
+    "args": ["./scripts/package-extension.js"],
+    "options": { "cwd": "${workspaceFolder}" },
+    "problemMatcher": [],
+    "presentation": { "reveal": "never", "panel": "dedicated" }
+  }]
+}
