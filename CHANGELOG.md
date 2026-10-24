@@ -6,6 +6,7 @@
 
 ## 0.4.0r4 — 2026-10-24
 
+- README 增加项目界面、审计、Agent Instruction 和 Overleaf 配置截图。
 - 补充当前使用限制：需在 VS Code 与插件中同时打开论文项目；Agent 插件集成尚不稳定，建议搭配外部 Agent App 和 Agent Instruction；Overleaf 配置界面仍较为简陋。
 - 修复 Overleaf 推送写死 master 的问题，自动读取服务端当前引用，无需配置版本或分支。
 - 兼容不同主线名称、仅提供 HEAD 的读取响应，以及空项目首次推送；保留远端文件与并发更新保护。

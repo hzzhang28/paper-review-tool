@@ -7,3 +7,5 @@
 !resources/**
 !runtime/**
 runtime/pdfjs/**
+resources/screenshots/**
+assets/screenshots/**
