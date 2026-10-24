@@ -158,7 +158,7 @@ class OverleafUi {
         worker.once('exit', code => {
           this.worker = undefined;
           if (failure || code !== 0 || !result) {
-            this.log('后台任务结束，退出码：' + code);
+            this.log(code === 0 && failure ? '后台任务已正常结束；推送结果为失败。' : '后台任务异常结束，退出码：' + code);
             reject(Object.assign(Error(failure || 'Overleaf 推送中断，请重试。'), { diagnosticLogged: true }));
           }
           else resolve(result);

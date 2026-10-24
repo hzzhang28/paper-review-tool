@@ -42,7 +42,7 @@ function publicMessage(error) {
   const code = error?.code || error?.name;
   return ['UserCanceledError', 'HttpError'].includes(code) ? 'Overleaf 认证或访问失败，请检查 Token 和项目 Git 权限。' :
     ['PushRejectedError', 'GitPushError'].includes(code) ? 'Overleaf 未接受推送，远端可能已有更新，请重试。' :
-    /^(?:所选|请先选择|推送范围|文件必须|多个本地|远端文件路径|目标目录|目标文件|项目正在|项目快照|文件与目录|无效的推送规则)/.test(error?.message || '') ? error.message :
+    /^(?:所选|请先选择|推送范围|文件必须|多个本地|远端文件路径|目标目录|目标文件|项目正在|项目快照|文件与目录|无效的推送规则|Overleaf 未提供|无法读取 Overleaf 当前快照)/.test(error?.message || '') ? error.message :
     'Overleaf 推送失败，请打开日志查看具体原因。';
 }
 module.exports = { redact, errorDetails, publicMessage };
