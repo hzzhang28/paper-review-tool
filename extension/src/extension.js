@@ -122,7 +122,12 @@ function activate(context) {
   }
   idleStatus();
   void vscode.commands.executeCommand('setContext', 'paperReview.projectOpen', false);
-  const showError = error => vscode.window.showErrorMessage(`Paper: ${error.message}`);
+  const showError = error => {
+    if (error.overleafLog) return Promise.resolve(vscode.window.showErrorMessage(`Paper: ${error.message}`, '查看日志')).then(choice => {
+      if (choice === '查看日志') overleaf.showLog();
+    });
+    return vscode.window.showErrorMessage(`Paper: ${error.message}`);
+  };
   const register = (name, callback) => context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
     const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath'].includes(name.split('.').at(-1));
     let entered = false;
@@ -395,6 +400,7 @@ function activate(context) {
   register('paperReview.overleafPush', () => overleaf.push());
   register('paperReview.overleafCredentials', () => overleaf.credentials());
   register('paperReview.overleafForgetCredentials', () => overleaf.forgetCredentials());
+  register('paperReview.overleafLog', () => overleaf.showLog());
   register("paperReview.openChatGPTExternal", async () => {
     if (!await vscode.env.openExternal(vscode.Uri.parse(CHAT_URL))) throw new Error("无法打开默认浏览器。");
   });

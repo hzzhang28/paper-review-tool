@@ -239,6 +239,11 @@
       {
         "command": "paperReview.overleafForgetCredentials",
         "title": "Paper: 删除 Overleaf Git Token"
+      },
+      {
+        "command": "paperReview.overleafLog",
+        "title": "Paper: 打开 Overleaf 日志",
+        "icon": "$(output)"
       }
     ],
     "menus": {
@@ -332,6 +337,11 @@
           "command": "paperReview.overleafConfigure",
           "when": "resourceScheme == paper && paperReview.overleafEnabled",
           "group": "5_overleaf@1"
+        },
+        {
+          "command": "paperReview.overleafLog",
+          "when": "resourceScheme == paper && paperReview.overleafEnabled",
+          "group": "5_overleaf@2"
         }
       ],
       "editor/context": [
@@ -471,6 +481,11 @@
           "command": "paperReview.overleafConfigure",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "navigation@3"
+        },
+        {
+          "command": "paperReview.overleafLog",
+          "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
+          "group": "5_overleaf@2"
         }
       ],
       "explorer/context": [
@@ -1213,7 +1228,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.0r2",
+  "paperReviewBuild": "0.4.0r3",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

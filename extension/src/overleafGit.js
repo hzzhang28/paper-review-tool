@@ -18,16 +18,21 @@ function loadGit() {
   const packaged = path.join(__dirname, '..', 'runtime', 'node_modules', 'isomorphic-git');
   return require(fs.existsSync(packaged) ? packaged : 'isomorphic-git');
 }
-function httpClient(url, fetcher = fetch, timeout = 120000) {
+function httpClient(url, fetcher = fetch, timeout = 120000, log = () => {}) {
   const base = new URL(url);
   return { async request(request) {
     const target = new URL(request.url);
     if (target.origin !== base.origin || ![base.pathname + '/info/refs', base.pathname + '/git-upload-pack', base.pathname + '/git-receive-pack'].includes(target.pathname) || target.username || target.password) throw Error('Unexpected Git endpoint.');
     const signal = request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout);
+    const method = request.method || 'GET', endpoint = target.pathname.slice(base.pathname.length);
+    const started = Date.now();
+    log('HTTP ' + method + ' git.overleaf.com/[project]' + endpoint);
     const response = await fetcher(target.href, {
       method: request.method || 'GET', headers: request.headers, redirect: 'error', signal,
       ...(request.body ? { body: Readable.from(request.body), duplex: 'half' } : {})
     });
+    log('HTTP ' + response.status + ' ' + method + ' ' + endpoint + ' (' + (Date.now() - started) + ' ms)' +
+      (response.headers.get('content-type') ? ' | ' + response.headers.get('content-type') : ''));
     return { url: target.href, method: request.method || 'GET', headers: Object.fromEntries(response.headers), statusCode: response.status, statusMessage: response.statusText, body: response.body || undefined };
   } };
 }
@@ -61,13 +66,14 @@ async function overlayTree(git, options, original, files) {
   };
   return write(original, changes);
 }
-async function pushFiles({ url, token, cache, files, stage = () => {}, git = loadGit(), http }) {
+async function pushFiles({ url, token, cache, files, stage = () => {}, git = loadGit(), http, log = () => {} }) {
   url = projectUrl(url);
   const options = { fs, gitdir: path.join(cache, 'git') };
   await git.init({ ...options, bare: true, defaultBranch: 'master' });
   await git.addRemote({ ...options, remote: 'origin', url });
-  const transport = { ...options, http: http || httpClient(url), url,
-    onAuth: () => ({ username: 'git', password: token }), onAuthFailure: () => ({ cancel: true }) };
+  const transport = { ...options, http: http || httpClient(url, fetch, 120000, log), url,
+    onAuth: () => { log('收到 Git 认证请求，使用安全存储中的 Token。'); return { username: 'git', password: token }; },
+    onAuthFailure: () => { log('Git 认证被拒绝。'); return { cancel: true }; } };
   stage('正在准备远端基准…');
   const fetched = await git.fetch({ ...transport, ref: 'master', singleBranch: true, tags: false });
   if (!fetched.fetchHead) throw Error('无法读取 Overleaf 主线。');

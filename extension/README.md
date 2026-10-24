@@ -82,6 +82,8 @@ Windows 和 macOS 使用标准工具命令；其他平台或自定义命令选�
 
 该功能默认关闭，打开项目后即可看到 Overleaf 按钮。启用后，章节和正文标题栏的 **…** 菜单另有直接推送入口。可在 Overleaf 弹出界面关闭推送或删除 Git Token，映射规则保留。命令面板的 **Paper: Overleaf 配置** 也可打开同一界面。
 
+推送日志位于 **输出 → Paper Overleaf**。可在 Overleaf 弹出界面点击 **打开日志**，或运行 **Paper: 打开 Overleaf 日志**；失败通知也提供 **查看日志**。日志记录执行阶段、HTTP 状态和底层错误原因，并过滤凭据，不另写日志文件。
+
 ## 开发与参考
 
 源码打包使用本机 Node.js：`npm ci` 安装依赖，`npm run check` 检查语法，`npm run package:vsix` 生成安装包。依赖要求见 [package.json](https://github.com/hzzhang28/paper-review-tool/blob/main/package.json)。
