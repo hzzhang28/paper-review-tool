@@ -34,6 +34,9 @@ function wholeRange(range, hunks) {
   if (hunks.some(h => h.start <= range.start && h.end >= range.end && h.newStart === h.newEnd)) return null;
   return end > start ? { start, end } : null;
 }
+function contentVersion(sourceVersion, sourceContentHash, contentHash) {
+  return contentHash === sourceContentHash ? sourceVersion : hash(`${sourceVersion}:human:${contentHash}`);
+}
 function remap(reviews, before, after, actor = 'human') {
   if (before === after) return structuredClone(reviews);
   const hunks = changes(before, after), result = [];
@@ -69,9 +72,18 @@ function remap(reviews, before, after, actor = 'human') {
       const text = after.slice(range.start, range.end);
       if (!text.trim()) continue;
       const changed = text !== review.text;
-      result.push({ ...review, ...range, text, contentHash: hash(text),
+      const contentHash = hash(text);
+      // Human saves share one AI generation: identical current text must have
+      // the same version whether reached in one edit or several saved edits.
+      let sourceVersion = review.sourceVersion || review.version;
+      let sourceContentHash = review.sourceContentHash || review.contentHash || hash(review.text);
+      if (actor === 'ai' && (changed || ranges.length > 1 || touched(review, hunks))) {
+        sourceVersion = randomUUID(); sourceContentHash = contentHash;
+      }
+      result.push({ ...review, ...range, text, contentHash,
         id: ranges.length > 1 ? hash(`${review.id}:${range.start - position(review.start, hunks, true)}:${text}`) : review.id,
-        version: changed || ranges.length > 1 ? hash(`${review.version}:${actor}:${text}`) : review.version,
+        sourceVersion, sourceContentHash,
+        version: contentVersion(sourceVersion, sourceContentHash, contentHash),
         original: review.kind === 'token' && changed ? null : review.original,
         status: actor === 'ai' && touched(review, hunks) ? 'unreviewed' : review.status });
     }
@@ -145,4 +157,4 @@ function initialReviews(text) {
       initialText: content, original: null, version: randomUUID(), contentHash: hash(content), revision: 1 };
   }).filter(review => review.text);
 }
-module.exports = { changes, position, wholeRange, remap, applyAI, matches, initialReviews };
+module.exports = { changes, position, wholeRange, contentVersion, remap, applyAI, matches, initialReviews };

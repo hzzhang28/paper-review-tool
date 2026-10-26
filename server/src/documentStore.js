@@ -458,7 +458,17 @@ class DocumentStore {
   }
 
   replayReviews(reviews, operations, text) {
-    return applyReviewOperations(reviews, operations, { mapMark: operation => {
+    return applyReviewOperations(reviews, operations, { mapOperation: (operation, review) => {
+      // Only human text changes within the same inspected AI generation may
+      // move a staged decision. New AI edits replace that generation.
+      if (!review || !operation.sourceVersion || operation.sourceVersion !== (review.sourceVersion || review.version) || typeof operation.inspectedText !== 'string') return null;
+      let selection;
+      if (operation.selection) {
+        selection = reviewManager.wholeRange(operation.selection, reviewManager.changes(operation.inspectedText, review.text));
+        if (!selection) return null;
+      }
+      return { ...operation, version: review.version, contentHash: review.contentHash, selection };
+    }, mapMark: operation => {
       const before = this.text(operation.snapshotHash), review = operation.review;
       const hunks = reviewManager.changes(before, text);
       if (hunks.some(h => h.start < review.end && h.end > review.start ||
@@ -483,7 +493,8 @@ class DocumentStore {
     const operations = [];
     for (const review of next.human.reviews) {
       if (review.start >= end || review.end <= start) continue;
-      operations.push({ reviewId: review.id, version: review.version, contentHash: review.contentHash, action: body.action,
+      operations.push({ reviewId: review.id, version: review.version, contentHash: review.contentHash,
+        sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action,
         selection: { start: Math.max(start, review.start) - review.start, end: Math.min(end, review.end) - review.start } });
       gaps = gaps.flatMap(r => review.start >= r.end || review.end <= r.start ? [r] :
         [{ start: r.start, end: Math.min(r.end, review.start) }, { start: Math.max(r.start, review.end), end: r.end }].filter(r => r.end > r.start));
@@ -537,7 +548,8 @@ class DocumentStore {
       for (const token of require('./mergeEngine').tokens(review.text)) boundaries.add(offset += token.length);
       if (!boundaries.has(s.start) || !boundaries.has(s.end)) throw new StoreError('Review selection must follow token boundaries.', 400);
     }
-    const operation = { reviewId: review.id, version: review.version, contentHash: review.contentHash, action: body.action, selection: body.selection };
+    const operation = { reviewId: review.id, version: review.version, contentHash: review.contentHash,
+      sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action, selection: body.selection };
     next.human.reviewOps.push(operation);
     next.human.reviews = applyReviewOperations(next.human.reviews, [operation]).reviews;
     return { ok: true, draftVersion: next.human.version };

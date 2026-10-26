@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -680,7 +680,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -695,7 +695,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -711,7 +711,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -720,7 +720,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -735,7 +735,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -750,7 +750,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -766,7 +766,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -775,7 +775,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -1005,7 +1005,7 @@
                 "args": [
                   "-interaction=nonstopmode",
                   "-file-line-error",
-                  "-no-shell-escape",
+                  "-shell-restricted",
                   "${file}"
                 ]
               },
@@ -1021,7 +1021,7 @@
                 "args": [
                   "-interaction=nonstopmode",
                   "-file-line-error",
-                  "-no-shell-escape",
+                  "-shell-restricted",
                   "${file}"
                 ]
               },
@@ -1030,7 +1030,7 @@
                 "args": [
                   "-interaction=nonstopmode",
                   "-file-line-error",
-                  "-no-shell-escape",
+                  "-shell-restricted",
                   "${file}"
                 ]
               }
@@ -1059,7 +1059,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -1074,7 +1074,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -1090,7 +1090,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -1099,7 +1099,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -1114,7 +1114,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -1129,7 +1129,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -1145,7 +1145,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 },
@@ -1154,7 +1154,7 @@
                   "args": [
                     "-interaction=nonstopmode",
                     "-file-line-error",
-                    "-no-shell-escape",
+                    "-shell-restricted",
                     "${file}"
                   ]
                 }
@@ -1228,7 +1228,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.0r5",
+  "paperReviewBuild": "0.4.1r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

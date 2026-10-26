@@ -1,6 +1,6 @@
 'use strict';
 const { hash } = require('./files');
-const { matches } = require('./reviewManager');
+const { matches, contentVersion } = require('./reviewManager');
 
 function applyReviewOperations(reviews, operations, context) {
   let result = structuredClone(reviews);
@@ -21,19 +21,30 @@ function applyReviewOperations(reviews, operations, context) {
       }
       applied.push(operation); continue;
     }
-    const review = result.find(r => matches(r, operation));
+    let effective = operation, review = result.find(r => matches(r, operation));
+    if (!review && context?.mapOperation) {
+      const candidate = result.find(r => r.id === operation.reviewId);
+      const mapped = context.mapOperation(operation, candidate);
+      if (mapped && candidate && matches(candidate, mapped)) { effective = mapped; review = candidate; }
+    }
     if (!review) { stale.push(operation); continue; }
-    const selected = operation.selection || { start: 0, end: review.end - review.start };
+    const selected = effective.selection || { start: 0, end: review.end - review.start };
+    const inspectedText = operation.inspectedText ?? review.text;
+    const inspectedSelection = operation.selection || { start: 0, end: inspectedText.length };
     const fragments = [
-      { start: 0, end: selected.start, status: review.status },
-      { ...selected, status: operation.action === 'approve' ? 'approved' : operation.action === 'unreviewed' ? 'unreviewed' : 'needsFix' },
-      { start: selected.end, end: review.end - review.start, status: review.status }
+      { start: 0, end: selected.start, sourceStart: 0, sourceEnd: inspectedSelection.start, status: review.status },
+      { ...selected, sourceStart: inspectedSelection.start, sourceEnd: inspectedSelection.end, status: operation.action === 'approve' ? 'approved' : operation.action === 'unreviewed' ? 'unreviewed' : 'needsFix' },
+      { start: selected.end, end: review.end - review.start, sourceStart: inspectedSelection.end, sourceEnd: inspectedText.length, status: review.status }
     ].filter(s => s.end > s.start && s.status !== 'approved').map(s => {
-      const full = s.start === 0 && s.end === review.text.length;
+      const full = s.sourceStart === 0 && s.sourceEnd === inspectedText.length;
       const text = review.text.slice(s.start, s.end);
-      return { ...review, id: full ? review.id : hash(`${review.id}:${s.start}:${s.end}`),
+      const contentHash = hash(text);
+      const sourceVersion = hash(`${operation.version}:fragment:${s.sourceStart}:${s.sourceEnd}`);
+      const sourceContentHash = hash(inspectedText.slice(s.sourceStart, s.sourceEnd));
+      return { ...review, id: full ? review.id : hash(`${review.id}:${s.sourceStart}:${s.sourceEnd}`),
         start: review.start + s.start, end: review.start + s.end, text,
-        contentHash: hash(text), status: s.status, original: full ? review.original : null,
+        contentHash, ...(full ? {} : { sourceVersion, sourceContentHash, version: contentVersion(sourceVersion, sourceContentHash, contentHash) }),
+        status: s.status, original: full ? review.original : null,
         initialText: full ? review.initialText : text };
     }).filter(fragment => fragment.text.trim());
     result = result.flatMap(r => r === review ? fragments : [r]);

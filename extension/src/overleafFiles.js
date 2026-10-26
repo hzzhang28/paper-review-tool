@@ -25,6 +25,8 @@ function projectPath(root, relative) {
   return target;
 }
 function excluded(relative) {
+  // epstopdf's explicitly marked derivatives are build output, not source figures.
+  if (/(?:^|[\/_.-])eps-converted-to\.pdf$/i.test(relative)) return true;
   const parts = relative.toLowerCase().split('/');
   if (parts.includes('.git')) return true;
   const at = parts.indexOf('.paper-manager');
