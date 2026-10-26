@@ -8,6 +8,7 @@ const { merge } = require('./mergeEngine');
 const reviewManager = require('./reviewManager');
 const { anchorAt, relocate, minimizeIssues } = require('./structures');
 const { applyReviewOperations, applyRejections } = require('./metadata');
+const storage = require('./storageMaintenance');
 
 class StoreError extends Error {
   constructor(message, status = 409) { super(message); this.status = status; }
@@ -36,6 +37,7 @@ class DocumentStore {
         CREATE TABLE IF NOT EXISTS pending (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, response TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history (sequence INTEGER PRIMARY KEY, json TEXT NOT NULL);`);
+      this.prepareStorageSchema();
       this.recover();
       const row = this.db.prepare('SELECT json FROM state WHERE id=1').get();
       if (row) this.state = JSON.parse(row.json);
@@ -80,6 +82,8 @@ class DocumentStore {
     state.reviews ||= []; state.changeEvents ||= []; state.auditHistory ||= []; state.issues ||= [];
     state.human.reviews ||= []; state.human.reviewOps ||= []; state.human.issues ||= []; state.human.issueOps ||= [];
     state.human.rejections ||= [];
+    state.retention ||= { policy: { ...storage.defaults }, floor: 1 };
+    state.retention.policy = storage.policy(state.retention.policy);
     state.issues = minimizeIssues(state.issues, this.text(state.master.hash), legacyAnchors);
     state.human.issues = minimizeIssues(state.human.issues, this.text(state.human.draftHash), legacyAnchors);
     state.human.issueOps = state.human.issueOps.map(op => ({ ...op,
@@ -141,7 +145,7 @@ class DocumentStore {
       eol: source.includes('\r\n') ? '\r\n' : '\n',
       master: { revision: 1, hash: snapshot, diskHash: hash(bytes) },
       human: { baseHash: snapshot, draftHash: snapshot, baseRevision: 1, pulledRevision: 1, version: 1, mtime: time },
-      sessions: {}, conflicts: [], revisions: [{ revision: 1, hash: snapshot, actor: 'initial', time }] };
+      sessions: {}, conflicts: [], revisions: [{ revision: 1, hash: snapshot, actor: 'initial', time, sequence: 0 }] };
     this.ensureMetadata(state);
     state.initialReview = this.initialReview;
     if (this.initialReview === 'unreviewed') {
@@ -182,26 +186,41 @@ class DocumentStore {
       const json = JSON.stringify(journal.state);
       this.db.prepare('INSERT OR REPLACE INTO state VALUES (1, ?)').run(json);
       this.db.prepare('INSERT INTO history VALUES (?, ?)').run(journal.state.sequence, json);
-      if (journal.transaction) this.db.prepare('INSERT INTO transactions VALUES (?, ?, ?)').run(
-        journal.transaction.id, journal.transaction.fingerprint, JSON.stringify(journal.transaction.response));
+      if (journal.transaction) this.db.prepare('INSERT INTO transactions (id,fingerprint,response,sequence,createdAt) VALUES (?, ?, ?, ?, ?)').run(
+        journal.transaction.id, journal.transaction.fingerprint, JSON.stringify(journal.transaction.response), journal.state.sequence, Date.now());
+      if (journal.state.retention) {
+        const limits = storage.policy(journal.state.retention.policy);
+        this.db.prepare('DELETE FROM history WHERE sequence < ? OR sequence NOT IN (SELECT sequence FROM history ORDER BY sequence DESC LIMIT ?)')
+          .run(journal.state.retention.resetAt || 0, limits.recovery);
+      }
       this.db.exec('DELETE FROM pending; COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     this.state = journal.state;
   }
   commit(next, files, transaction) {
     if (this.state) this.assertManagedFiles();
-    // Independent plain-text metadata checkpoint complements SQLite history.
-    files = files.concat(this.fileOperation(`.paper-manager/recovery/checkpoints/${next.sequence}.json`, JSON.stringify({ state: next, transaction }, null, 2) + '\n'));
+    const removed = storage.prune(next);
+    const deep = !this.state || transaction?.response?.storageMaintenance || next.sequence % 25 === 0 ||
+      next.master.revision !== this.state.master.revision || removed.sessions.length || removed.revisions.length ||
+      JSON.stringify(Object.keys(next.sessions)) !== JSON.stringify(Object.keys(this.state.sessions));
+    // Recovery checkpoints do not duplicate potentially large HTTP responses.
+    const receipt = transaction && { id: transaction.id, fingerprint: transaction.fingerprint };
+    files = files.concat(this.fileOperation(`.paper-manager/recovery/checkpoints/${next.sequence}.json`, JSON.stringify({ state: next, transaction: receipt }) + '\n'));
     const journal = { state: next, files, transaction };
     this.db.prepare('INSERT INTO pending VALUES (1, ?)').run(JSON.stringify(journal));
     try { this.finish(journal); }
     catch (error) { this.poisoned = true; throw error; }
+    // The durable state is committed first. Reclamation is repeatable and must
+    // never turn a successful Push into a failed or duplicated submission.
+    try { this.maintainStorage({ deep, compact: !!transaction?.response?.storageCompact }); this.maintenanceError = undefined; }
+    catch (error) { this.maintenanceError = error.message; console.warn('Storage maintenance postponed:', error.message); }
   }
   transaction(id, fingerprint, operation) {
     if (!/^[a-zA-Z0-9-]{8,100}$/.test(id || '')) throw new StoreError('A unique X-Transaction-Id is required.', 400);
     const previous = this.db.prepare('SELECT * FROM transactions WHERE id=?').get(id);
     if (previous) {
       if (previous.fingerprint !== fingerprint) throw new StoreError('Transaction ID was reused for a different request.');
+      if (previous.expired) throw new StoreError('This transaction result was reclaimed. Refresh state; the request will not be executed again.', 410);
       return JSON.parse(previous.response);
     }
     this.assertManagedFiles();
@@ -214,6 +233,74 @@ class DocumentStore {
   }
   expectDraft(next, version) {
     if (version !== next.human.version) throw new StoreError('Draft version changed. Reload state before retrying.');
+  }
+  prepareStorageSchema() {
+    const columns = new Set(this.db.prepare('PRAGMA table_info(transactions)').all().map(c => c.name));
+    for (const [name, definition] of Object.entries({ sequence: 'INTEGER NOT NULL DEFAULT 0', createdAt: 'INTEGER NOT NULL DEFAULT 0', expired: 'INTEGER NOT NULL DEFAULT 0' })) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE transactions ADD COLUMN ${name} ${definition}`);
+    }
+    // Give pre-upgrade requests the normal retry grace period before expiring
+    // payloads. IDs and fingerprints are retained permanently.
+    this.db.prepare('UPDATE transactions SET createdAt=? WHERE createdAt=0 AND expired=0').run(Date.now());
+  }
+  maintainStorage({ deep = false, compact = false } = {}) {
+    if (this.db.prepare('SELECT 1 FROM pending LIMIT 1').get()) throw Error('Recovery is pending; storage cleanup postponed.');
+    const state = this.state, limits = storage.policy(state.retention.policy);
+    this.db.prepare("UPDATE transactions SET response='{}', expired=1 WHERE expired=0 AND createdAt < ? AND id NOT IN (SELECT id FROM transactions ORDER BY sequence DESC, rowid DESC LIMIT 20)")
+      .run(compact ? Date.now() + 1 : Date.now() - 120000);
+    if (deep) {
+      const extraStates = this.db.prepare('SELECT json FROM history').all().map(row => JSON.parse(row.json));
+      storage.removeFiles(this.root, storage.filePlan(this.root, state, { extraStates }));
+    } else {
+      const checkpoints = storage.files(this.root, '.paper-manager/recovery/checkpoints').filter(f => !f.directory && /^(0|[1-9]\d*)\.json$/.test(f.base));
+      const kept = checkpoints.filter(f => Number(f.base.slice(0, -5)) >= (state.retention.resetAt || 0))
+        .sort((a, b) => Number(b.base.slice(0, -5)) - Number(a.base.slice(0, -5))).slice(0, limits.recovery);
+      storage.removeFiles(this.root, { remove: checkpoints.filter(f => !kept.includes(f)) });
+    }
+    if (compact) {
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      this.db.exec('VACUUM');
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    }
+  }
+  storageInfo() {
+    const found = storage.inventory(this.root);
+    const database = ['state.db', 'state.db-wal', 'state.db-shm'].reduce((n, name) => {
+      const target = safePath(this.root, '.paper-manager/' + name);
+      return n + (fs.existsSync(target) ? fs.statSync(target).size : 0);
+    }, 0);
+    return { policy: this.state.retention.policy, sequence: this.state.sequence, masterRevision: this.state.master.revision,
+      oldestRevision: this.state.revisions[0]?.revision, revisionCount: this.state.revisions.length,
+      databaseBytes: database, recoveryBytes: storage.treeBytes(this.root, '.paper-manager/recovery'),
+      aiSessionBytes: storage.treeBytes(this.root, '.paper-manager/ai-sessions'), aiSessionCount: Object.keys(this.state.sessions).length,
+      checkpointCount: found.checkpoints.length, historyCount: this.db.prepare('SELECT COUNT(*) count FROM history').get().count,
+      warning: this.maintenanceError };
+  }
+  storagePreview(body) {
+    this.assertManagedFiles();
+    let request;
+    try { request = storage.cleanupRequest(body, this.state.master.revision); } catch (error) { throw new StoreError(error.message, 400); }
+    const next = structuredClone(this.state); next.sequence++;
+    const removed = storage.prune(next, { beforeRevision: request.beforeRevision, ...(request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
+    const plan = storage.filePlan(this.root, next, { fresh: true });
+    return { token: storage.token(this.state.sequence, request), sequence: this.state.sequence, request,
+      removedRevisions: removed.revisions, completedSessions: removed.sessions.length, removedEvents: removed.events,
+      files: plan.remove.length, fileBytes: plan.fileBytes, protectedBlobs: plan.protectedBlobs };
+  }
+  storageCleanup(next, body) {
+    const preview = this.storagePreview(body);
+    if (body.token !== preview.token) throw new StoreError('项目状态已变化，请重新预览清理范围。');
+    storage.prune(next, { beforeRevision: preview.request.beforeRevision, ...(preview.request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
+    // A fresh recovery baseline releases references from pre-cleanup backups.
+    // Persist it before unlinking anything so interrupted cleanup can resume.
+    next.retention.resetAt = next.sequence;
+    return { ok: true, storageMaintenance: true, storageCompact: true, removedRevisions: preview.removedRevisions.length, completedSessions: preview.completedSessions };
+  }
+  storagePolicy(next, body) {
+    let selected;
+    try { selected = storage.policy(body.policy); } catch (error) { throw new StoreError(error.message, 400); }
+    next.retention.policy = selected;
+    return { ok: true, policy: selected, storageMaintenance: true };
   }
   stateView() {
     let drift;
@@ -264,7 +351,7 @@ class DocumentStore {
     next.issues = this.relocateIssues(next.issues, previous, text);
     const diskText = text.replace(/\n/g, next.eol);
     next.master = { revision: next.master.revision + 1, hash: snapshot, diskHash: hash(diskText) };
-    next.revisions.push({ revision: next.master.revision, hash: snapshot, actor, sessionId, time: Date.now() });
+    next.revisions.push({ revision: next.master.revision, hash: snapshot, actor, sessionId, time: Date.now(), sequence: next.sequence });
     files.push(this.fileOperation(next.masterFile, diskText));
   }
   conflict(next, files, kind, base, current, incoming, details, sessionId) {
@@ -297,8 +384,8 @@ class DocumentStore {
     const audit = this.replayReviews(next.reviews, next.human.reviewOps, mergedText);
     next.reviews = audit.reviews;
     next.reviews = applyRejections(next.reviews, next.human.rejections);
-    next.auditHistory.push(...audit.applied.map(operation => ({ ...operation, sequence: next.sequence, time: Date.now() })));
-    next.auditHistory.push(...next.human.rejections.map(rejected => ({ ...rejected, action: 'reject', sequence: next.sequence, time: Date.now() })));
+    next.auditHistory.push(...audit.applied.map(operation => ({ ...operation, sequence: next.sequence, revision: next.master.revision, time: Date.now() })));
+    next.auditHistory.push(...next.human.rejections.map(rejected => ({ ...rejected, action: 'reject', sequence: next.sequence, revision: next.master.revision, time: Date.now() })));
     next.human.rejections = [];
     next.human.reviewOps = [];
     for (const op of next.human.issueOps) {

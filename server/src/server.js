@@ -53,6 +53,7 @@ function startServer({ root, file, port = 0, onShutdown, initialReview, requireE
         else if (route === 'GET /v1/reviews') result = url.searchParams.get('scope') === 'master' ? store.state.reviews : store.state.human.reviews;
         else if (route === 'GET /v1/issues') result = url.searchParams.get('scope') === 'master' ? store.state.issues : store.state.human.issues;
         else if (route === 'GET /v1/events') result = store.state.changeEvents;
+        else if (route === 'GET /v1/storage') result = store.storageInfo();
         else if (/^GET \/v1\/revisions\/\d+$/.test(route)) {
           const revision = Number(url.pathname.split('/').at(-1));
           const selected = store.state.revisions.find(r => r.revision === revision);
@@ -61,6 +62,8 @@ function startServer({ root, file, port = 0, onShutdown, initialReview, requireE
         }
         else {
           const actions = {
+            'POST /v1/storage/policy': (next, files, body) => store.storagePolicy(next, body),
+            'POST /v1/storage/cleanup': (next, files, body) => store.storageCleanup(next, body),
             'PUT /v1/human/file': (next, files, body) => store.saveDraft(next, files, body),
             'POST /v1/human/push': (next, files, body) => store.humanPush(next, files, body),
             'POST /v1/human/pull': (next, files, body) => store.humanPull(next, files, body),
@@ -89,6 +92,7 @@ function startServer({ root, file, port = 0, onShutdown, initialReview, requireE
             send(response, 200, { ok: true });
             setImmediate(onShutdown); return;
           }
+          if (route === 'POST /v1/storage/preview') { send(response, 200, store.storagePreview(await readBody(request))); return; }
           if (!action) throw new StoreError('Unknown endpoint.', 404);
           const body = await readBody(request);
           const fingerprint = hash(JSON.stringify({ route, body }));

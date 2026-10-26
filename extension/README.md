@@ -92,6 +92,12 @@ Overleaf 推送已实现基础功能，当前配置界面仍较为简陋。
 
 推送日志位于 **输出 → Paper Overleaf**。可在 Overleaf 弹出界面点击 **打开日志**，或运行 **Paper: 打开 Overleaf 日志**；失败通知也提供 **查看日志**。日志记录执行阶段、HTTP 状态和底层错误原因，并过滤凭据，不另写日志文件。
 
+## 存储与清理
+
+点击 **章节** 面板标题栏的 **存储与清理** 按钮，查看数据库、Recovery 和 AI Session 占用，预览后整理存储、清理已完成 AI Session，或指定 Revision 删除更早的历史。例如填写 `30` 会删除 r30 以前的历史，保留 r30。清理不修改 Master 正文或重排版本号。
+
+Settings 中的 `paperReview.storage` 可设置保留数量：已完成 AI Session 默认 3 份，正文历史默认无限（0），恢复快照默认 3 份。当前 Master、Human Draft、审计、Issue、未提交会话、Pending 和未解决冲突的必要依赖保留。历史删除不可恢复；仍被引用的旧快照会暂时保留。
+
 ## 开发与参考
 
 源码打包使用本机 Node.js：`npm ci` 安装依赖，`npm run check` 检查语法，`npm run package:vsix` 生成安装包。依赖要求见 [package.json](https://github.com/hzzhang28/paper-review-tool/blob/main/package.json)。

@@ -16,6 +16,7 @@ const { selectedProfile, profileId } = require('./compileProfiles');
 const { agentInstruction } = require('./agentInstruction');
 const { ConfigurationUi } = require('./configurationUi');
 const { OverleafUi } = require('./overleafUi');
+const { StorageUi } = require('./storageUi');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -45,6 +46,7 @@ function activate(context) {
   const chatWeb = new ChatWeb(vscode);
   const webViews = new Map([[CHAT_URL, chatWeb]]), agentPanels = new Map();
   const config = () => vscode.workspace.getConfiguration('paperReview');
+  const storageUi = new StorageUi(vscode, () => client ? { client, root: projectRoot } : undefined, () => refreshStatus(true));
   const overleaf = new OverleafUi(vscode, context, () => projectRoot ? { root: projectRoot, file: masterFile } : undefined);
   context.subscriptions.push(overleaf);
   void overleaf.refresh();
@@ -189,6 +191,7 @@ function activate(context) {
     if (!vscode.workspace.isTrusted) throw new Error('请先将工作区设为受信任。');
     const { root, file } = project;
     const nextClient = await manager.ensure(root, file, { initialReview: project.initialReview, requireExisting: project.initialized !== false });
+    await storageUi.sync(nextClient);
     const state = await nextClient.request('GET', '/v1/state');
     client = nextClient;
     lastAINotification = state.aiNotification?.sequence || 0;
@@ -804,6 +807,7 @@ function activate(context) {
     await vscode.commands.executeCommand('vscode.diff', metadataUri('paper-revision', `/${revision}`),
       metadataUri('paper-revision', `/${state.masterRevision}`), `Master r${revision} → r${state.masterRevision}`);
   });
+  register('paperReview.storage', () => storageUi.open());
   register('paperReview.restore', async () => {
     const revision = await chooseRevision(); if (!revision) return;
     const state = await client.request('GET', '/v1/state');
@@ -812,6 +816,7 @@ function activate(context) {
   });
   provider.onSaved = refreshStatus;
   if (vscode.workspace.onDidChangeConfiguration) context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('paperReview.storage')) void storageUi.sync().catch(showError);
     if (event.affectsConfiguration('paperReview.overleaf.enabled')) void overleaf.refresh();
     updateTargetButtons();
     void settingsUi.changed(event).then(() => { updateTargetButtons(); if (!buildBusy) compileButton(); }).catch(showError);
