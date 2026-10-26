@@ -563,8 +563,10 @@ function activate(context) {
     const editor = await savedEditor();
     await ui.refresh();
     const selection = editor.selection, start = draftOffset(editor.document, selection.start), end = draftOffset(editor.document, selection.end);
-    const selected = item?.review ? [item.review] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.start < end && r.end > start);
-    if (!item && ['unreviewed', 'needsFix'].includes(action)) {
+    // Editor context menus pass a document URI, whereas review items carry .review.
+    const targetReview = item?.review;
+    const selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.start < end && r.end > start);
+    if (!targetReview && ['unreviewed', 'needsFix'].includes(action)) {
       operation = true; provider.busy = true;
       try {
         const version = editor.document.version;
@@ -578,7 +580,7 @@ function activate(context) {
     operation = true; provider.busy = true;
     try {
       for (const review of selected) {
-        const partial = !item && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
+        const partial = !targetReview && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
         if (partial && action === 'reject') throw new Error('无法单独撤回所选片段，请拒绝整处高亮修改或手动编辑。');
         let rejectWholeEvent = false;
         if (action === 'reject' && review.origin === 'manual') throw new Error('手动标记没有可撤回的 AI 修改，请直接编辑或通过审核。');
