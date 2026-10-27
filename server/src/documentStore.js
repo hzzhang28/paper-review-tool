@@ -279,18 +279,19 @@ class DocumentStore {
   storagePreview(body) {
     this.assertManagedFiles();
     let request;
-    try { request = storage.cleanupRequest(body, this.state.master.revision); } catch (error) { throw new StoreError(error.message, 400); }
+    try { request = storage.cleanupRequest(body); } catch (error) { throw new StoreError(error.message, 400); }
     const next = structuredClone(this.state); next.sequence++;
-    const removed = storage.prune(next, { beforeRevision: request.beforeRevision, ...(request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
+    const removed = storage.prune(next, { keepRevisions: request.keepRevisions, ...(request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
     const plan = storage.filePlan(this.root, next, { fresh: true });
     return { token: storage.token(this.state.sequence, request), sequence: this.state.sequence, request,
-      removedRevisions: removed.revisions, completedSessions: removed.sessions.length, removedEvents: removed.events,
+      removedRevisions: removed.revisions, retainedRevisions: next.revisions.length, oldestRevision: next.revisions[0]?.revision, newestRevision: next.master.revision,
+      completedSessions: removed.sessions.length, removedEvents: removed.events,
       files: plan.remove.length, fileBytes: plan.fileBytes, protectedBlobs: plan.protectedBlobs };
   }
   storageCleanup(next, body) {
     const preview = this.storagePreview(body);
     if (body.token !== preview.token) throw new StoreError('项目状态已变化，请重新预览清理范围。');
-    storage.prune(next, { beforeRevision: preview.request.beforeRevision, ...(preview.request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
+    storage.prune(next, { keepRevisions: preview.request.keepRevisions, ...(preview.request.mode === 'sessions' ? { aiSessions: 0 } : {}) });
     // A fresh recovery baseline releases references from pre-cleanup backups.
     // Persist it before unlinking anything so interrupted cleanup can resume.
     next.retention.resetAt = next.sequence;

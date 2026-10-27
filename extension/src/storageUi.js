@@ -16,22 +16,23 @@ class StorageUi {
     const choice = await this.vscode.window.showQuickPick([
       { label: '整理存储并压缩数据库', mode: 'compact', description: '回收无引用快照及过量恢复副本，保留正文历史' },
       { label: '清理已完成 AI Session', mode: 'sessions', description: '保留未提交、Pending 和冲突所需副本' },
-      { label: '按 Revision 清理历史', mode: 'history', description: `保留范围：r${info.oldestRevision}–r${info.masterRevision}，共 ${info.revisionCount} 个版本` },
+      { label: '按保留数量清理历史', mode: 'history', description: `现有范围：r${info.oldestRevision}–r${info.masterRevision}，共 ${info.revisionCount} 个版本` },
       { label: '保留设置', mode: 'settings', description: `AI ${info.policy.aiSessions} 份；历史 ${info.policy.revisions || '无限'}；恢复 ${info.policy.recovery} 份` }
     ], { title: '存储与清理', placeHolder: `数据库 ${bytes(info.databaseBytes)} · Recovery ${bytes(info.recoveryBytes)} · AI ${bytes(info.aiSessionBytes)}`, ignoreFocusOut: true });
     if (!choice) return;
     if (choice.mode === 'settings') return this.vscode.commands.executeCommand('workbench.action.openSettings', 'paperReview.storage');
     const request = { mode: choice.mode };
     if (choice.mode === 'history') {
-      const input = await this.vscode.window.showInputBox({ title: '清理此 Revision 以前的历史', prompt: `例如填写 30：删除 r30 以前的历史，保留 r30。当前 Master r${info.masterRevision}。`,
-        validateInput: value => /^r?[1-9]\d*$/.test(value.trim()) && Number(value.trim().replace(/^r/, '')) <= info.masterRevision ? undefined : '填写 r1 至当前 Master 的版本号。' });
+      const input = await this.vscode.window.showInputBox({ title: '保留最近多少个版本', prompt: `填写保留数量，例如 30。当前 Master r${info.masterRevision}，现有 ${info.revisionCount} 个版本；不足该数量则全部保留。`,
+        validateInput: value => /^[1-9]\d*$/.test(value.trim()) && Number(value.trim()) <= 1000000 ? undefined : '填写 1 至 1000000 的版本保留数量。' });
       if (input === undefined) return;
-      request.beforeRevision = Number(input.trim().replace(/^r/, ''));
+      request.keepRevisions = Number(input.trim());
     }
     if (this.current()?.client !== client) throw Error('项目已切换，请重新打开存储与清理。');
     const preview = await client.request('POST', '/v1/storage/preview', request);
     const scope = preview.removedRevisions.length ? `删除 ${preview.removedRevisions.length} 个旧 Revision；` : '不删除正文 Revision；';
-    const confirmed = await this.vscode.window.showWarningMessage(`${scope}清理 ${preview.completedSessions} 个已完成 AI Session，预计回收文件 ${bytes(preview.fileBytes)}，并压缩数据库。\n当前 Master、Human Draft、审计、Issue 和未完成任务依赖保留。删除的历史不可恢复。`, { modal: true }, '确认清理');
+    const retained = request.mode === 'history' ? `保留 ${preview.retainedRevisions} 个版本（r${preview.oldestRevision}–r${preview.newestRevision}）；` : '';
+    const confirmed = await this.vscode.window.showWarningMessage(`${retained}${scope}清理 ${preview.completedSessions} 个已完成 AI Session，预计回收文件 ${bytes(preview.fileBytes)}，并压缩数据库。\n当前 Master、Human Draft、审计、Issue 和未完成任务依赖保留。删除的历史不可恢复。`, { modal: true }, '确认清理');
     if (confirmed !== '确认清理') return;
     if (this.current()?.client !== client) throw Error('项目已切换，请重新预览清理范围。');
     await client.request('POST', '/v1/storage/cleanup', { ...request, token: preview.token });

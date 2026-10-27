@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -250,6 +250,17 @@
         "title": "存储与清理",
         "category": "Paper",
         "icon": "$(database)"
+      },
+      {
+        "command": "paperReview.checkForUpdates",
+        "title": "Paper: 检查更新",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "paperReview.setWorkspaceFolder",
+        "title": "Paper: 将工作区设为当前项目目录",
+        "icon": "$(folder-opened)",
+        "enablement": "paperReview.projectOpen"
       }
     ],
     "menus": {
@@ -467,6 +478,11 @@
           "command": "paperReview.closeProject",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "4_project@3"
+        },
+        {
+          "command": "paperReview.setWorkspaceFolder",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "4_project@4"
         },
         {
           "command": "paperReview.resolveConflict",
@@ -1259,11 +1275,41 @@
           "maximum": 100,
           "scope": "resource",
           "description": "恢复快照的保留数量；独立于正文 Revision 历史。"
+        },
+        "paperReview.update.mode": {
+          "type": "string",
+          "enum": ["off", "notify", "auto"],
+          "enumDescriptions": ["启动时不检查更新。", "发现新版本时通知，由你选择是否下载安装。", "发现新版本后自动下载并安装，只提示重新加载窗口。"],
+          "default": "auto",
+          "description": "GitHub Release 自动更新策略。不会自动重新加载窗口。"
+        },
+        "paperReview.update.intervalHours": {
+          "type": "integer",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 168,
+          "description": "自动检查更新的最小间隔（小时）。"
+        },
+        "paperReview.update.feedUrl": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 Release JSON 地址（与 GitHub releases/latest 结构一致）；留空使用 GitHub API。"
+        },
+        "paperReview.workspace.openMode": {
+          "type": "string",
+          "enum": ["newWindow", "reuseWindow", "never"],
+          "enumDescriptions": [
+            "当前窗口已打开其他文件夹时，在新窗口打开论文目录并自动继续打开项目。",
+            "在当前窗口把工作区文件夹替换为论文目录。",
+            "只打开项目，不修改 VS Code 工作区。"
+          ],
+          "default": "newWindow",
+          "description": "打开论文项目时如何同步 VS Code 工作区文件夹。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.2r1",
+  "paperReviewBuild": "0.4.3r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

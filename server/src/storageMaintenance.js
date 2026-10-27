@@ -22,11 +22,12 @@ function references(value, hashes = new Set(), events = new Set()) {
   }
   return { hashes, events };
 }
-function prune(state, { beforeRevision, aiSessions } = {}) {
+function prune(state, { keepRevisions, aiSessions } = {}) {
   state.retention ||= { policy: { ...defaults }, floor: 1 };
   const limits = policy(state.retention.policy), removed = { revisions: [], sessions: [], events: 0, conflicts: [] };
-  let floor = Math.max(state.retention.floor || 1, beforeRevision || 1);
-  if (limits.revisions && state.revisions.length > limits.revisions) floor = Math.max(floor, state.revisions.at(-limits.revisions).revision);
+  let floor = state.retention.floor || 1;
+  const count = keepRevisions ?? limits.revisions;
+  if (count && state.revisions.length > count) floor = Math.max(floor, state.revisions.at(-count).revision);
   state.retention.floor = floor;
   state.revisions = state.revisions.filter(r => {
     const keep = r.revision >= floor || r.revision === state.master.revision;
@@ -127,10 +128,13 @@ function removeFiles(root, plan) {
     try { fs.rmdirSync(safePath(root, relative)); } catch (error) { if (!['ENOTEMPTY', 'ENOENT'].includes(error.code)) throw error; }
   }
 }
-function cleanupRequest(body, revision) {
+function cleanupRequest(body) {
   if (!['compact', 'sessions', 'history'].includes(body.mode)) throw Error('Choose a storage cleanup action.');
-  if (body.mode === 'history' && (!Number.isSafeInteger(body.beforeRevision) || body.beforeRevision < 1 || body.beforeRevision > revision)) throw Error('Choose a Revision from r1 through the current Master.');
-  return { mode: body.mode, ...(body.mode === 'history' ? { beforeRevision: body.beforeRevision } : {}) };
+  if (body.mode === 'history') {
+    if (Object.hasOwn(body, 'beforeRevision')) throw Error('清理参数已更新，请刷新界面并填写保留的版本数量。');
+    if (!Number.isSafeInteger(body.keepRevisions) || body.keepRevisions < 1 || body.keepRevisions > 1000000) throw Error('Choose a retention count from 1 through 1000000.');
+  }
+  return { mode: body.mode, ...(body.mode === 'history' ? { keepRevisions: body.keepRevisions } : {}) };
 }
 function token(sequence, request) { return hash(JSON.stringify({ sequence, request })); }
 module.exports = { defaults, policy, references, prune, files, inventory, treeBytes, filePlan, removeFiles, cleanupRequest, token };

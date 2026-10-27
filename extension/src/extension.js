@@ -17,6 +17,9 @@ const { agentInstruction } = require('./agentInstruction');
 const { ConfigurationUi } = require('./configurationUi');
 const { OverleafUi } = require('./overleafUi');
 const { StorageUi } = require('./storageUi');
+const { UpdateManager } = require('./updateManager');
+const { workspaceMatches, projectWorkspaceAction, switchProjectWorkspace,
+  buildPendingOpen, delegateProjectWorkspace, pendingOpenForWindow, clearPendingOpen } = require('./projectWorkspace');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -31,6 +34,11 @@ function activate(context) {
   submitConflictStatus.tooltip = '保存合并结果并同步 Master 与 Human Draft。';
   submitConflictStatus.command = 'paperReview.submitConflict';
   const output = vscode.window.createOutputChannel('Paper Review');
+  const updater = new UpdateManager(vscode, context, {
+    output,
+    installGuard: () => !operation && !transitioning && !provider.busy && !buildBusy
+  });
+  context.subscriptions.push(updater);
   const buildOutput = vscode.window.createOutputChannel('Paper Build', 'paper-build-log');
   const buildStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
   const buildLogStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 48);
@@ -131,7 +139,7 @@ function activate(context) {
     return vscode.window.showErrorMessage(`Paper: ${error.message}`);
   };
   const register = (name, callback) => context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
-    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath'].includes(name.split('.').at(-1));
+    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates'].includes(name.split('.').at(-1));
     let entered = false;
     try {
       if (protectedCommand) {
@@ -261,17 +269,76 @@ function activate(context) {
       project.initialReview = mode.value;
     }
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
+    const plan = projectWorkspaceAction(vscode, project.root, { mode: config().get('workspace.openMode') });
+    if (plan.action === 'delegate') {
+      transitioning = true;
+      let delegated = false;
+      try {
+        delegated = await delegateProjectWorkspace(vscode, project.root, buildPendingOpen(project), {
+          globalState: context.globalState,
+          onLog: message => output.appendLine(message)
+        });
+      } finally { transitioning = false; }
+      if (delegated) {
+        vscode.window.setStatusBarMessage('已在新窗口打开论文目录，正在加载项目。', 6000);
+        return;
+      }
+      output.appendLine('新窗口打开失败，改为在当前窗口切换工作区。');
+      await openProjectDescriptor(project, { switchWorkspace: true });
+      return;
+    }
+    await openProjectDescriptor(project, { switchWorkspace: plan.switch });
+  }
+  async function openProjectDescriptor(project, { switchWorkspace = false } = {}) {
+    if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
     try {
       if (!await releaseProject()) return;
+      if (switchWorkspace) {
+        try { await switchProjectWorkspace(vscode, project.root); }
+        catch (error) { output.appendLine(error.message + ' 继续在不修改工作区的情况下打开项目。'); }
+      }
       const resource = await connect(project);
       await showDraft(resource);
+      return resource;
     } catch (error) {
       if (!client) { await manager.stop(); idleStatus(); }
       throw error;
     } finally { transitioning = false; await refreshStatus(); }
   }
+  async function resumePendingProject() {
+    const state = context.globalState;
+    if (!state) return;
+    const pending = pendingOpenForWindow(state, vscode.workspace.workspaceFolders || []);
+    if (!pending) return;
+    if (pending.expired) { await clearPendingOpen(state); return; }
+    if (!vscode.workspace.isTrusted) {
+      output.appendLine('论文目录尚未受信任；信任并重新加载窗口后将自动打开项目。');
+      return;
+    }
+    if (client || transitioning) { await clearPendingOpen(state); return; }
+    await clearPendingOpen(state);
+    try {
+      const project = describeProject(path.join(pending.root, pending.file));
+      if (!project.initialized && !['approved', 'unreviewed'].includes(pending.initialReview)) {
+        output.appendLine('待打开项目缺少初始审计选择，请手动打开。');
+        return;
+      }
+      await openProjectDescriptor({ ...project, initialReview: project.initialized ? undefined : pending.initialReview });
+    } catch (error) { showError(error); }
+  }
   register('paperReview.openProject', openProject);
+  register('paperReview.setWorkspaceFolder', async () => {
+    if (!projectRoot) throw new Error('请先打开项目。');
+    if (workspaceMatches(vscode, projectRoot)) {
+      vscode.window.showInformationMessage('当前工作区已是项目目录。');
+      return;
+    }
+    await switchProjectWorkspace(vscode, projectRoot);
+    if (client) await storageUi.sync(client);
+    vscode.window.showInformationMessage('已将 VS Code 工作区设为项目目录。');
+  });
+  register('paperReview.checkForUpdates', () => updater.check({ manual: true }));
   register('paperReview.closeProject', async () => {
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
@@ -847,6 +914,8 @@ function activate(context) {
   void settingsUi.initialize().catch(showError);
   const timer = setInterval(refreshStatus, 2500);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
+  updater.start();
+  void resumePendingProject().catch(showError);
 }
 async function deactivate() { await activeCompiler?.cancel(); activeCompiler = undefined; await activeManager?.stop(); activeManager = undefined; }
 module.exports = { activate, deactivate };
