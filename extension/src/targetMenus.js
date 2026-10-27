@@ -1,5 +1,5 @@
 'use strict';
-const defaults = require('../package.json').contributes.configuration.properties;
+const defaults = require('./manifestSettings').properties;
 const known = [
   { extensionId: 'openai.chatgpt', name: 'Codex', command: 'chatgpt.newCodexPanel' },
   { extensionId: 'anthropic.claude-code', name: 'Claude Code', command: 'anthropic.claude-code.openInNewTab' }

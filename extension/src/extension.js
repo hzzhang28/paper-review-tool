@@ -18,8 +18,8 @@ const { ConfigurationUi } = require('./configurationUi');
 const { OverleafUi } = require('./overleafUi');
 const { StorageUi } = require('./storageUi');
 const { UpdateManager } = require('./updateManager');
-const { workspaceMatches, projectWorkspaceAction, switchProjectWorkspace,
-  buildPendingOpen, delegateProjectWorkspace, pendingOpenForWindow, clearPendingOpen } = require('./projectWorkspace');
+const { PENDING_OPEN_KEY, workspaceMatches, projectWorkspaceAction, buildPendingOpen, delegateProjectWorkspace,
+  pendingOpenForWindow, clearPendingOpen, managedProjectInFolders } = require('./projectWorkspace');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -139,7 +139,7 @@ function activate(context) {
     return vscode.window.showErrorMessage(`Paper: ${error.message}`);
   };
   const register = (name, callback) => context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
-    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates'].includes(name.split('.').at(-1));
+    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates', 'settings'].includes(name.split('.').at(-1));
     let entered = false;
     try {
       if (protectedCommand) {
@@ -270,34 +270,29 @@ function activate(context) {
     }
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     const plan = projectWorkspaceAction(vscode, project.root, { mode: config().get('workspace.openMode') });
-    if (plan.action === 'delegate') {
+    if (plan.action === 'openFolder') {
       transitioning = true;
       let delegated = false;
       try {
         delegated = await delegateProjectWorkspace(vscode, project.root, buildPendingOpen(project), {
           globalState: context.globalState,
+          newWindow: plan.newWindow,
           onLog: message => output.appendLine(message)
         });
       } finally { transitioning = false; }
       if (delegated) {
-        vscode.window.setStatusBarMessage('已在新窗口打开论文目录，正在加载项目。', 6000);
+        vscode.window.setStatusBarMessage('已打开论文文件夹，正在载入项目。', 6000);
         return;
       }
-      output.appendLine('新窗口打开失败，改为在当前窗口切换工作区。');
-      await openProjectDescriptor(project, { switchWorkspace: true });
-      return;
+      output.appendLine('未能用 VS Code 打开论文文件夹，改为只打开项目。');
     }
-    await openProjectDescriptor(project, { switchWorkspace: plan.switch });
+    await openProjectDescriptor(project);
   }
-  async function openProjectDescriptor(project, { switchWorkspace = false } = {}) {
+  async function openProjectDescriptor(project) {
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
     try {
       if (!await releaseProject()) return;
-      if (switchWorkspace) {
-        try { await switchProjectWorkspace(vscode, project.root); }
-        catch (error) { output.appendLine(error.message + ' 继续在不修改工作区的情况下打开项目。'); }
-      }
       const resource = await connect(project);
       await showDraft(resource);
       return resource;
@@ -306,38 +301,73 @@ function activate(context) {
       throw error;
     } finally { transitioning = false; await refreshStatus(); }
   }
+  function projectFolders() { return vscode.workspace.workspaceFolders || []; }
+  // A folder opened in VS Code may briefly report no folders while it loads.
+  async function waitForSingleFolder(timeoutMs = 4000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (projectFolders().length === 1) return true;
+      if (projectFolders().length > 1) return false;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return projectFolders().length === 1;
+  }
   async function resumePendingProject() {
     const state = context.globalState;
     if (!state) return;
-    const pending = pendingOpenForWindow(state, vscode.workspace.workspaceFolders || []);
+    if (!state.get(PENDING_OPEN_KEY)) return; // never delay the common activation path
+    await waitForSingleFolder();
+    const pending = pendingOpenForWindow(state, projectFolders());
     if (!pending) return;
     if (pending.expired) { await clearPendingOpen(state); return; }
     if (!vscode.workspace.isTrusted) {
-      output.appendLine('论文目录尚未受信任；信任并重新加载窗口后将自动打开项目。');
+      output.appendLine('论文文件夹尚未受信任；信任并重新加载窗口后将自动打开项目。');
       return;
     }
     if (client || transitioning) { await clearPendingOpen(state); return; }
-    await clearPendingOpen(state);
     try {
       const project = describeProject(path.join(pending.root, pending.file));
       if (!project.initialized && !['approved', 'unreviewed'].includes(pending.initialReview)) {
         output.appendLine('待打开项目缺少初始审计选择，请手动打开。');
+        await clearPendingOpen(state);
         return;
       }
       await openProjectDescriptor({ ...project, initialReview: project.initialized ? undefined : pending.initialReview });
-    } catch (error) { showError(error); }
+      await clearPendingOpen(state);
+    } catch (error) {
+      // Keep the record so another reload can retry; it expires on its own.
+      output.appendLine('自动打开上次选择的项目失败：' + error.message);
+      showError(error);
+    }
+  }
+  async function autoOpenManagedProject() {
+    if (client || transitioning || operation) return;
+    if (config().get('workspace.autoOpenProject') === false) return;
+    if (!vscode.workspace.isTrusted) return;
+    const managed = managedProjectInFolders(projectFolders());
+    if (!managed) return;
+    try {
+      const project = describeProject(path.join(managed.root, managed.file));
+      if (!project.initialized) return;
+      output.appendLine('检测到论文文件夹中的项目数据，正在载入 ' + managed.file + '。');
+      await openProjectDescriptor(project);
+    } catch (error) { output.appendLine('自动载入论文项目失败：' + error.message); }
   }
   register('paperReview.openProject', openProject);
   register('paperReview.setWorkspaceFolder', async () => {
     if (!projectRoot) throw new Error('请先打开项目。');
     if (workspaceMatches(vscode, projectRoot)) {
-      vscode.window.showInformationMessage('当前工作区已是项目目录。');
+      vscode.window.showInformationMessage('VS Code 当前打开的就是论文文件夹。');
       return;
     }
-    await switchProjectWorkspace(vscode, projectRoot);
-    if (client) await storageUi.sync(client);
-    vscode.window.showInformationMessage('已将 VS Code 工作区设为项目目录。');
+    await delegateProjectWorkspace(vscode, projectRoot, buildPendingOpen({ root: projectRoot, file: masterFile }), {
+      globalState: context.globalState,
+      newWindow: false,
+      onLog: message => output.appendLine(message)
+    });
+    vscode.window.setStatusBarMessage('正在用 VS Code 打开论文文件夹，随后自动载入项目。', 6000);
   });
+  register('paperReview.settings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-paper-tools.paper-review-tool'));
   register('paperReview.checkForUpdates', async () => {
     if (transitioning) throw new Error('正在打开或关闭项目，请稍后重试。');
     return updater.check({ manual: true });
@@ -918,7 +948,10 @@ function activate(context) {
   const timer = setInterval(refreshStatus, 2500);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
   updater.start();
-  void resumePendingProject().catch(showError);
+  void (async () => {
+    await resumePendingProject();
+    if (!client) await autoOpenManagedProject();
+  })().catch(showError);
 }
 async function deactivate() { await activeCompiler?.cancel(); activeCompiler = undefined; await activeManager?.stop(); activeManager = undefined; }
 module.exports = { activate, deactivate };

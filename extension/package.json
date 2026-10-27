@@ -258,9 +258,14 @@
       },
       {
         "command": "paperReview.setWorkspaceFolder",
-        "title": "Paper: 将工作区设为当前项目目录",
+        "title": "Paper: 用 VS Code 打开论文文件夹",
         "icon": "$(folder-opened)",
         "enablement": "paperReview.projectOpen"
+      },
+      {
+        "command": "paperReview.settings",
+        "title": "Paper: 打开设置",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -483,6 +488,11 @@
           "command": "paperReview.setWorkspaceFolder",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "4_project@4"
+        },
+        {
+          "command": "paperReview.settings",
+          "when": "view == paperReview.reviews",
+          "group": "4_project@5"
         },
         {
           "command": "paperReview.resolveConflict",
@@ -1257,30 +1267,42 @@
           "default": 3,
           "minimum": 0,
           "maximum": 1000000,
-          "scope": "resource",
-          "description": "已完成 AI Session 的保留数量；0 表示完成后清理。未提交、Pending 和冲突依赖不自动清理。"
+          "scope": "window",
+          "order": 60,
+          "markdownDescription": "**存储与清理**：已完成 AI Session 的保留数量；`0` 表示完成后清理。未提交、Pending 和冲突依赖不自动清理。"
         },
         "paperReview.storage.revisions": {
           "type": "integer",
           "default": 0,
           "minimum": 0,
           "maximum": 1000000,
-          "scope": "resource",
-          "description": "正文历史版本的保留数量；0 表示无限。被当前工作区或未完成任务引用的快照仍受保护。"
+          "scope": "window",
+          "order": 61,
+          "markdownDescription": "**存储与清理**：正文历史版本的保留数量；`0` 表示无限。被当前工作区或未完成任务引用的快照仍受保护。"
         },
         "paperReview.storage.recovery": {
           "type": "integer",
           "default": 3,
           "minimum": 1,
           "maximum": 100,
-          "scope": "resource",
-          "description": "恢复快照的保留数量；独立于正文 Revision 历史。"
+          "scope": "window",
+          "order": 62,
+          "markdownDescription": "**存储与清理**：恢复快照的保留数量；独立于正文 Revision 历史。"
         },
         "paperReview.update.mode": {
           "type": "string",
-          "enum": ["off", "notify", "auto"],
-          "enumDescriptions": ["启动时不检查更新。", "发现新版本时通知，由你选择是否下载安装。", "发现新版本后自动下载并安装，只提示重新加载窗口。"],
+          "enum": [
+            "off",
+            "notify",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "启动时不检查更新。",
+            "发现新版本时通知，由你选择是否下载安装。",
+            "发现新版本后自动下载并安装，只提示重新加载窗口。"
+          ],
           "default": "auto",
+          "order": 70,
           "description": "GitHub Release 自动更新策略。不会自动重新加载窗口。"
         },
         "paperReview.update.intervalHours": {
@@ -1288,28 +1310,41 @@
           "default": 24,
           "minimum": 1,
           "maximum": 168,
+          "order": 71,
           "description": "自动检查更新的最小间隔（小时）。"
         },
         "paperReview.update.feedUrl": {
           "type": "string",
           "default": "",
+          "order": 72,
           "description": "自定义 Release JSON 地址（与 GitHub releases/latest 结构一致）；留空使用 GitHub API。"
         },
         "paperReview.workspace.openMode": {
           "type": "string",
-          "enum": ["newWindow", "reuseWindow", "never"],
+          "enum": [
+            "newWindow",
+            "reuseWindow",
+            "never"
+          ],
           "enumDescriptions": [
-            "当前窗口已打开其他文件夹时，在新窗口打开论文目录并自动继续打开项目。",
-            "在当前窗口把工作区文件夹替换为论文目录。",
-            "只打开项目，不修改 VS Code 工作区。"
+            "当前窗口已打开其他文件夹时，在另一个窗口用“打开文件夹”载入论文目录，并自动打开项目。",
+            "在当前窗口用“打开文件夹”载入论文目录，替换现有文件夹，并自动打开项目。",
+            "只打开项目，不切换 VS Code 打开的文件夹。"
           ],
           "default": "newWindow",
-          "description": "打开论文项目时如何同步 VS Code 工作区文件夹。"
+          "order": 74,
+          "markdownDescription": "打开论文项目时是否同时用 VS Code 打开论文所在的**文件夹**。"
+        },
+        "paperReview.workspace.autoOpenProject": {
+          "type": "boolean",
+          "default": true,
+          "order": 75,
+          "markdownDescription": "当前文件夹含 `.paper-manager` 数据时，自动载入其中的论文项目，无需再次手动打开。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.3r1",
+  "paperReviewBuild": "0.4.3r2",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"
