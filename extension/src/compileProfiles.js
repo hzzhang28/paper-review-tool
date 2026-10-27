@@ -1,5 +1,5 @@
 'use strict';
-const defaults = require('./manifestSettings').properties;
+const defaults = require('../package.json').contributes.configuration.properties;
 function explicit(config, key) {
   const value = config.inspect?.(key);
   return value ? value.workspaceFolderValue ?? value.workspaceValue ?? value.globalValue : config.get(key);

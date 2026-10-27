@@ -114,7 +114,7 @@ class CompileManager {
     try { return await this.current; } finally { this.current = undefined; this.controller = undefined; }
   }
   async execute(input, progress, controller) {
-    const profile = validateProfile(input.profile || require('./manifestSettings').properties['paperReview.compileProfiles'].default.find(p => p.id === 'pdflatex-bibtex'));
+    const profile = validateProfile(input.profile || require('../package.json').contributes.configuration.properties['paperReview.compileProfiles'].default.find(p => p.id === 'pdflatex-bibtex'));
     if (!profile.steps.length) return { generated: false, status: 'disabled', masterRevision: input.revision };
     await input.verifyRevision?.();
     controller.signal.throwIfAborted();

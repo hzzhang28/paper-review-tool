@@ -6,21 +6,15 @@
 
 从 [GitHub Releases](https://github.com/hzzhang28/paper-review-tool/releases/latest) 下载 VSIX，在 VS Code 扩展视图的 **… → Install from VSIX…** 中安装，随后重新加载窗口。同一数字版本下的更新也需要覆盖安装。
 
-扩展默认在启动后检查 GitHub Release，并自动下载、校验和安装新构建（如 `0.4.3r1`）。安装完成后只提示重新加载窗口，不会自动重启。可用 `paperReview.update.mode` 调整为仅通知或关闭，用 **Paper: 检查更新** 手动检查；间隔和自定义更新源分别由 `paperReview.update.intervalHours`、`paperReview.update.feedUrl` 设置。更新源需能访问 `api.github.com` 与 Release 下载域名。
-
 - **查看 PDF 需自行安装内联 PDF 阅读扩展，并设为默认查看器。**
 - 编译需安装本机 LaTeX 工具链；仅编辑正文可选择“不编译”。
 - Agent 面板需自行安装对应扩展；Web 入口需要支持内联浏览器的新版 VS Code。
 
 ## 打开项目
 
-点击 **Paper → 初始化 / 打开项目**，选择受管理的 `.tex` 文件。扩展会用 VS Code 的“打开文件夹”打开文件所在目录，并在窗口重启后自动载入项目，因此项目内的 `.vscode/settings.json` 会生效。
+目前需要先在 **VS Code 中打开论文文件夹作为工作区**，再通过 **Paper → 初始化 / 打开项目** 打开同一项目的 `.tex` 文件。两处都需要打开；只完成其中一步可能出现异常。此问题计划在后续版本修复。
 
-- 当前窗口已打开其他文件夹时，默认在**另一个窗口**打开论文文件夹，并在其中自动载入项目。
-- 当前窗口没有打开文件夹时，直接在当前窗口打开该文件夹。
-- `paperReview.workspace.openMode` 可设为 `newWindow`（默认）、`reuseWindow`（当前窗口打开）或 `never`（只打开项目，不切换文件夹）。
-- 已含 `.paper-manager` 数据的文件夹会在打开时自动载入项目；可用 `paperReview.workspace.autoOpenProject` 关闭。
-- 文件夹被手动切走后，运行 **Paper: 用 VS Code 打开论文文件夹** 重新打开。
+点击 **Paper → 初始化 / 打开项目**，选择受管理的 `.tex` 文件。文件所在目录作为项目根目录。
 
 首次打开时选择“全部已审核”或“全部待审核”。再次打开时加载已有人工草稿、审计状态、Issue 和历史。文件夹按钮可切换项目。
 
@@ -120,9 +114,7 @@ Overleaf 推送已实现基础功能，当前配置界面仍较为简陋。
 
 点击 **章节** 面板标题栏的 **存储与清理** 按钮，查看数据库、Recovery 和 AI Session 占用，预览后整理存储、清理已完成 AI Session，或填写希望保留的最近版本数量。例如当前为 r70，填写 `30` 会保留 r41–r70 共 30 个版本，清理 r40 及更早的历史；现有版本不足该数量时全部保留。清理不修改 Master 正文或重排版本号。
 
-清理完成后先显示**当前占用**（数据库、Recovery、AI Session 及合计），再单独说明本次回收的大小，避免把现有大小误读为释放量。
-
-保留数量在 Settings 中搜索 `存储与清理` 或运行 **Paper: 打开设置** 修改：已完成 AI Session 默认 3 份，正文历史默认无限（0），恢复快照默认 3 份。这三个设置会出现在“用户”页签，可直接填写数字，也可按文件夹覆盖。当前 Master、Human Draft、审计、Issue、未提交会话、Pending 和未解决冲突的必要依赖保留。历史删除不可恢复；仍被引用的旧快照会暂时保留。命令 **Paper: 打开设置** 可打开本扩展的全部设置。
+Settings 中的 `paperReview.storage` 可设置保留数量：已完成 AI Session 默认 3 份，正文历史默认无限（0），恢复快照默认 3 份。当前 Master、Human Draft、审计、Issue、未提交会话、Pending 和未解决冲突的必要依赖保留。历史删除不可恢复；仍被引用的旧快照会暂时保留。
 
 ## 开发与参考
 

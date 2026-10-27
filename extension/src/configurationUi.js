@@ -15,8 +15,8 @@ class ConfigurationUi {
       platform: platformPreset(config, this.platform), engine: explicit(config, 'compileProfile') ?? 'pdflatex-bibtex',
       agent: safely(() => resolveAgent(config, this.vscode.extensions.all)),
       web: safely(() => resolveWeb(config)),
-      compileProfiles: safely(() => profiles(config, this.platform), require('./manifestSettings').properties['paperReview.compileProfiles'].default),
-      compile: safely(() => selectedProfile(config, this.platform)) || require('./manifestSettings').properties['paperReview.customCompile'].default
+      compileProfiles: safely(() => profiles(config, this.platform), require('../package.json').contributes.configuration.properties['paperReview.compileProfiles'].default),
+      compile: safely(() => selectedProfile(config, this.platform)) || require('../package.json').contributes.configuration.properties['paperReview.customCompile'].default
     };
   }
   async initialize() {
