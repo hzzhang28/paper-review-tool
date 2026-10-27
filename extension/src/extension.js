@@ -338,7 +338,10 @@ function activate(context) {
     if (client) await storageUi.sync(client);
     vscode.window.showInformationMessage('已将 VS Code 工作区设为项目目录。');
   });
-  register('paperReview.checkForUpdates', () => updater.check({ manual: true }));
+  register('paperReview.checkForUpdates', async () => {
+    if (transitioning) throw new Error('正在打开或关闭项目，请稍后重试。');
+    return updater.check({ manual: true });
+  });
   register('paperReview.closeProject', async () => {
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;

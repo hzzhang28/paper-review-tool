@@ -125,6 +125,11 @@ class UpdateManager {
       if (manual) await this.vscode.window.showInformationMessage(`Paper Review Tool 已是最新版本（${this.build}）。`);
       return { status: 'current' };
     }
+    const pending = this.state().get(PENDING_KEY);
+    if (pending === asset.build) {
+      await this.remindPending(pending);
+      return { status: 'pending' };
+    }
     if (!manual && this.state().get(SKIP_KEY) === asset.build) return { status: 'skipped' };
     this.log(`发现新版本 ${asset.build}（当前 ${this.build}）。`);
     const auto = !manual && this.mode() === 'auto';
