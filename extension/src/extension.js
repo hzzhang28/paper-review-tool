@@ -17,6 +17,8 @@ const { agentInstruction } = require('./agentInstruction');
 const { ConfigurationUi } = require('./configurationUi');
 const { OverleafUi } = require('./overleafUi');
 const { StorageUi } = require('./storageUi');
+const { UpdateManager } = require('./updateManager');
+const { ProjectWorkspace } = require('./projectWorkspace');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -31,6 +33,10 @@ function activate(context) {
   submitConflictStatus.tooltip = '保存合并结果并同步 Master 与 Human Draft。';
   submitConflictStatus.command = 'paperReview.submitConflict';
   const output = vscode.window.createOutputChannel('Paper Review');
+  const workspace = new ProjectWorkspace(vscode, context.globalState);
+  const updater = new UpdateManager(vscode, context, { output,
+    idle: () => !operation && !transitioning && !provider.busy && !buildBusy && projectTasks === 0 });
+  context.subscriptions.push(updater);
   const buildOutput = vscode.window.createOutputChannel('Paper Build', 'paper-build-log');
   const buildStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
   const buildLogStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 48);
@@ -131,7 +137,7 @@ function activate(context) {
     return vscode.window.showErrorMessage(`Paper: ${error.message}`);
   };
   const register = (name, callback) => context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
-    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath'].includes(name.split('.').at(-1));
+    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates', 'settings'].includes(name.split('.').at(-1));
     let entered = false;
     try {
       if (protectedCommand) {
@@ -251,7 +257,7 @@ function activate(context) {
       selected = chosen[0];
     }
     const project = describeProject(selected.fsPath);
-    if (client && projectRoot === project.root && masterFile === project.file) { await showDraft(); return; }
+    if (workspace.matches(project.root) && client && projectRoot === project.root && masterFile === project.file) { await showDraft(); return; }
     if (!project.initialized) {
       const mode = await vscode.window.showQuickPick([
         { label: '全部已审核', description: '将现有正文视为已审核', value: 'approved' },
@@ -261,17 +267,30 @@ function activate(context) {
       project.initialReview = mode.value;
     }
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
+    if (!workspace.matches(project.root)) {
+      // VS Code owns Save / Discard / Cancel during a window switch. Keep file
+      // providers alive until the native openFolder command has completed.
+      transitioning = true; closingTabs = true;
+      try { await workspace.open(project); } finally { transitioning = false; closingTabs = false; }
+      return;
+    }
+    return openProjectDescriptor(project);
+  }
+  async function openProjectDescriptor(project) {
     transitioning = true;
     try {
-      if (!await releaseProject()) return;
+      if (client && !await releaseProject()) return false;
       const resource = await connect(project);
       await showDraft(resource);
+      return true;
     } catch (error) {
       if (!client) { await manager.stop(); idleStatus(); }
       throw error;
     } finally { transitioning = false; await refreshStatus(); }
   }
   register('paperReview.openProject', openProject);
+  register('paperReview.checkForUpdates', () => updater.check({ manual: true }));
+  register('paperReview.settings', () => vscode.commands.executeCommand('workbench.action.openGlobalSettings', { query: '@ext:local-paper-tools.paper-review-tool' }));
   register('paperReview.closeProject', async () => {
     if (operation || transitioning || projectTasks) throw new Error('正在处理项目操作，请稍后重试。');
     transitioning = true;
@@ -816,6 +835,7 @@ function activate(context) {
   });
   provider.onSaved = refreshStatus;
   if (vscode.workspace.onDidChangeConfiguration) context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('paperReview.update')) updater.start();
     if (event.affectsConfiguration('paperReview.storage')) void storageUi.sync().catch(showError);
     if (event.affectsConfiguration('paperReview.overleaf.enabled')) void overleaf.refresh();
     updateTargetButtons();
@@ -845,6 +865,13 @@ function activate(context) {
     new vscode.Disposable(() => ui?.dispose()),
     vscode.workspace.onDidCloseTextDocument(doc => { if (doc.uri.scheme === 'paper') { provider.blocked = false; provider.pendingPull = undefined; } }));
   void settingsUi.initialize().catch(showError);
+  if (vscode.workspace.isTrusted && !vscode.env.remoteName) {
+    try {
+      const pending = workspace.pending();
+      if (pending) void openProjectDescriptor(pending.project).then(opened => opened && workspace.complete(pending)).catch(showError);
+    } catch (error) { showError(error); }
+  }
+  updater.start();
   const timer = setInterval(refreshStatus, 2500);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
 }

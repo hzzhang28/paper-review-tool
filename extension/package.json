@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -250,6 +250,16 @@
         "title": "存储与清理",
         "category": "Paper",
         "icon": "$(database)"
+      },
+      {
+        "command": "paperReview.checkForUpdates",
+        "title": "Paper: 检查更新",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "paperReview.settings",
+        "title": "Paper: 打开设置",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -497,6 +507,16 @@
           "command": "paperReview.storage",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "navigation@4"
+        },
+        {
+          "command": "paperReview.checkForUpdates",
+          "when": "view == paperReview.reviews",
+          "group": "4_project@5"
+        },
+        {
+          "command": "paperReview.settings",
+          "when": "view == paperReview.reviews",
+          "group": "4_project@6"
         }
       ],
       "explorer/context": [
@@ -1242,7 +1262,11 @@
           "minimum": 0,
           "maximum": 1000000,
           "scope": "resource",
-          "description": "已完成 AI Session 的保留数量；0 表示完成后清理。未提交、Pending 和冲突依赖不自动清理。"
+          "description": "存储与清理：已完成 AI Session 的保留数量；0 表示完成后清理。未提交、Pending 和冲突依赖不自动清理。",
+          "order": 60,
+          "tags": [
+            "paperStorage"
+          ]
         },
         "paperReview.storage.revisions": {
           "type": "integer",
@@ -1250,7 +1274,11 @@
           "minimum": 0,
           "maximum": 1000000,
           "scope": "resource",
-          "description": "正文历史版本的保留数量；0 表示无限。被当前工作区或未完成任务引用的快照仍受保护。"
+          "description": "存储与清理：正文历史版本的保留数量；0 表示无限。被当前工作区或未完成任务引用的快照仍受保护。",
+          "order": 61,
+          "tags": [
+            "paperStorage"
+          ]
         },
         "paperReview.storage.recovery": {
           "type": "integer",
@@ -1258,12 +1286,70 @@
           "minimum": 1,
           "maximum": 100,
           "scope": "resource",
-          "description": "恢复快照的保留数量；独立于正文 Revision 历史。"
+          "description": "存储与清理：恢复快照的保留数量；独立于正文 Revision 历史。",
+          "order": 62,
+          "tags": [
+            "paperStorage"
+          ]
+        },
+        "paperReview.update.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "notify",
+            "off"
+          ],
+          "default": "auto",
+          "scope": "application",
+          "order": 70,
+          "enumDescriptions": [
+            "自动检查、下载并安装，提示手动重载窗口。",
+            "检查后通知，由用户选择安装。",
+            "关闭自动检查；仍可手动检查。"
+          ],
+          "description": "GitHub Release 更新方式。开发模式不自动安装。"
+        },
+        "paperReview.update.intervalHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168,
+          "default": 24,
+          "scope": "application",
+          "order": 71,
+          "description": "自动检查的间隔（小时）。"
+        },
+        "paperReview.update.feedUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "restricted": true,
+          "order": 72,
+          "description": "自定义 HTTPS Release JSON 地址；留空使用项目的 GitHub Release。"
+        },
+        "paperReview.workspace.openMode": {
+          "type": "string",
+          "enum": [
+            "newWindow",
+            "reuseWindow"
+          ],
+          "default": "newWindow",
+          "order": 80,
+          "enumDescriptions": [
+            "当前已有其他文件夹时在新窗口打开；空窗口直接使用当前窗口。",
+            "在当前窗口打开，由 VS Code 处理未保存内容。"
+          ],
+          "description": "选择论文项目时如何打开对应 VS Code 文件夹。"
+        },
+        "paperReview.workspace.autoOpenProject": {
+          "type": "boolean",
+          "default": true,
+          "order": 81,
+          "description": "直接打开已有受管理文件夹时自动载入 Paper 项目。通过插件选择项目始终自动载入。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.2r2",
+  "paperReviewBuild": "0.4.3r3",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

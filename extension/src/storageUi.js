@@ -1,6 +1,7 @@
 'use strict';
 const defaults = { aiSessions: 3, revisions: 0, recovery: 3 };
 function bytes(value) { return value < 1048576 ? (value / 1024).toFixed(1) + ' KiB' : (value / 1048576).toFixed(1) + ' MiB'; }
+function usage(info) { return `当前占用：数据库 ${bytes(info.databaseBytes)} · Recovery ${bytes(info.recoveryBytes)} · AI Session ${bytes(info.aiSessionBytes)}`; }
 class StorageUi {
   constructor(vscode, current, changed) { Object.assign(this, { vscode, current, changed }); }
   async sync(client = this.current()?.client) {
@@ -18,9 +19,9 @@ class StorageUi {
       { label: '清理已完成 AI Session', mode: 'sessions', description: '保留未提交、Pending 和冲突所需副本' },
       { label: '按保留数量清理历史', mode: 'history', description: `现有范围：r${info.oldestRevision}–r${info.masterRevision}，共 ${info.revisionCount} 个版本` },
       { label: '保留设置', mode: 'settings', description: `AI ${info.policy.aiSessions} 份；历史 ${info.policy.revisions || '无限'}；恢复 ${info.policy.recovery} 份` }
-    ], { title: '存储与清理', placeHolder: `数据库 ${bytes(info.databaseBytes)} · Recovery ${bytes(info.recoveryBytes)} · AI ${bytes(info.aiSessionBytes)}`, ignoreFocusOut: true });
+    ], { title: '存储与清理', placeHolder: usage(info), ignoreFocusOut: true });
     if (!choice) return;
-    if (choice.mode === 'settings') return this.vscode.commands.executeCommand('workbench.action.openSettings', 'paperReview.storage');
+    if (choice.mode === 'settings') return this.vscode.commands.executeCommand('workbench.action.openGlobalSettings', { query: '@ext:local-paper-tools.paper-review-tool @tag:paperStorage' });
     const request = { mode: choice.mode };
     if (choice.mode === 'history') {
       const input = await this.vscode.window.showInputBox({ title: '保留最近多少个版本', prompt: `填写保留数量，例如 30。当前 Master r${info.masterRevision}，现有 ${info.revisionCount} 个版本；不足该数量则全部保留。`,
@@ -38,9 +39,9 @@ class StorageUi {
     await client.request('POST', '/v1/storage/cleanup', { ...request, token: preview.token });
     const after = await client.request('GET', '/v1/storage');
     await this.changed?.();
-    if (after.warning) this.vscode.window.showWarningMessage('清理状态已保存，部分空间尚未回收：' + after.warning);
-    else this.vscode.window.showInformationMessage(`存储清理完成。数据库 ${bytes(after.databaseBytes)}，Recovery ${bytes(after.recoveryBytes)}，AI ${bytes(after.aiSessionBytes)}。`);
+    if (after.warning) this.vscode.window.showWarningMessage('清理状态已保存，部分空间尚未回收：' + after.warning + '。' + usage(after) + '。');
+    else this.vscode.window.showInformationMessage('存储清理完成。' + usage(after) + '。以上为清理后的现有大小。');
     return after;
   }
 }
-module.exports = { StorageUi, bytes };
+module.exports = { StorageUi, bytes, usage };

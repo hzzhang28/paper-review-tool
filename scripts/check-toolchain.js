@@ -11,7 +11,7 @@ if (!diffArrays(['base'], ['incoming'])) throw new Error('jsdiff unavailable.');
 const extension = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
 for (const target of [extension.main, 'runtime/server/src/server.js', 'runtime/server/src/hostWorker.js', 'runtime/server/src/runtimeCapabilities.js', 'runtime/node_modules/diff/package.json', 'resources/paper.svg',
   'src/codexPanel.js', 'src/targetMenus.js', 'src/configurationUi.js', 'src/compileProfiles.js', 'src/agentInstruction.js', 'src/editorGroups.js', 'src/chatWeb.js', 'src/chatScriptBridge.js', 'resources/chatgptLatexSource.js', 'src/compileManager.js', 'src/issueFs.js', 'src/reviewUi.js',
-  'src/overleafUi.js', 'src/overleafWorker.js', 'src/overleafFiles.js', 'src/overleafGit.js', 'src/overleafDiagnostics.js', 'src/storageUi.js', 'runtime/server/src/storageMaintenance.js', 'runtime/node_modules/isomorphic-git/package.json']) {
+  'src/overleafUi.js', 'src/overleafWorker.js', 'src/overleafFiles.js', 'src/overleafGit.js', 'src/overleafDiagnostics.js', 'src/storageUi.js', 'src/updateManager.js', 'src/projectWorkspace.js', 'runtime/server/src/storageMaintenance.js', 'runtime/node_modules/isomorphic-git/package.json']) {
   if (!fs.statSync(path.join(__dirname, '..', 'extension', target)).isFile()) throw new Error(`Missing extension asset: ${target}`);
 }
 require('../extension/runtime/node_modules/isomorphic-git');
