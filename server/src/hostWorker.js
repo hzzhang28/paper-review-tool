@@ -15,7 +15,7 @@ parentPort.on('message', message => {
 });
 parentPort.once('close', () => { void stop().catch(fail); });
 function fail(error) {
-  parentPort.postMessage({ type: 'fatal', message: error.message });
+  parentPort.postMessage({ type: 'fatal', message: error.message, code: error.code });
   void stop().finally(() => process.exit(1));
 }
 try {

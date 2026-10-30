@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -1318,14 +1318,6 @@
           "order": 71,
           "description": "自动检查的间隔（小时）。"
         },
-        "paperReview.update.feedUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "application",
-          "restricted": true,
-          "order": 72,
-          "description": "自定义 HTTPS Release JSON 地址；留空使用项目的 GitHub Release。"
-        },
         "paperReview.workspace.openMode": {
           "type": "string",
           "enum": [
@@ -1345,11 +1337,48 @@
           "default": true,
           "order": 81,
           "description": "直接打开已有受管理文件夹时自动载入 Paper 项目。通过插件选择项目始终自动载入。"
+        },
+        "paperReview.service.portMode": {
+          "type": "string",
+          "enum": [
+            "random",
+            "project",
+            "manual"
+          ],
+          "enumItemLabels": [
+            "完全随机",
+            "每个项目固定",
+            "手动指定"
+          ],
+          "enumDescriptions": [
+            "每次启动由系统分配可用端口（默认）。",
+            "首次分配后写入本项目的文件夹设置，以后重复使用。",
+            "使用本项目服务端口设置中的数值。"
+          ],
+          "default": "random",
+          "scope": "resource",
+          "order": 65,
+          "tags": [
+            "paperPort"
+          ],
+          "description": "项目服务端口模式。请在工作区/文件夹设置中配置；用户级设置不生效。下次服务启动时应用，已运行的服务继续复用。"
+        },
+        "paperReview.service.port": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "scope": "resource",
+          "order": 66,
+          "tags": [
+            "paperPort"
+          ],
+          "description": "项目服务端口。固定模式下 0 表示首次自动分配并写入文件夹设置；手动模式必须为 1–65535。随机模式忽略此值。端口被占用时提示并停止启动，不自动换端口。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.3r3",
+  "paperReviewBuild": "0.4.4r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

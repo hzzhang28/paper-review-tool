@@ -49,7 +49,7 @@ class UpdateManager {
     clearTimeout(this.timer);
     if (!this.production() || this.disposed || this.mode() === 'off') return;
     const checked = this.context.globalState.get(CHECKED);
-    const feed = this.config().get('update.feedUrl') || FEED;
+    const feed = FEED;
     const remaining = checked?.feed === feed ? checked.at + this.interval() - this.now() : 0;
     this.schedule(Math.max(20000, remaining));
   }
@@ -90,7 +90,7 @@ class UpdateManager {
   }
   async run(manual) {
     if (manual && !this.idle()) { await this.vscode.window.showWarningMessage('请等待当前保存、Push 或编译完成后再检查更新。'); return 'busy'; }
-    const feed = https(this.config().get('update.feedUrl') || FEED);
+    const feed = FEED;
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]);
     const response = await this.request(feed, signal), chunks = []; let size = 0;
     for await (const chunk of response.body) { size += chunk.length; if (size > 2 * 1024 * 1024) throw Error('更新信息过大。'); chunks.push(chunk); }

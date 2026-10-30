@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const { describeProject, projectId } = require('./projects');
 const { VirtualFs } = require('./virtualFs');
 const { ServiceManager } = require('./serviceManager');
+const { projectPortOptions } = require('./servicePorts');
 const { ReviewUi } = require('./reviewUi');
 const { IssueFs, serialize: issueText } = require('./issueFs');
 const { CompileManager } = require('./compileManager');
@@ -189,14 +190,14 @@ function activate(context) {
     } catch (error) {
       if (client !== current || transitioning) return;
       status.text = 'Paper | 服务不可用'; status.tooltip = error.message; status.show();
-      if (projectRoot && !operation) { try { client = await manager.ensure(projectRoot, masterFile, { requireExisting: true }); } catch (failure) { output.appendLine(failure.message); } }
+      if (projectRoot && !operation) { try { client = await manager.ensure(projectRoot, masterFile, { ...projectPortOptions(vscode, projectRoot), requireExisting: true }); } catch (failure) { output.appendLine(failure.message); } }
     }
   }
   async function connect(project, resource) {
     if (vscode.env.remoteName) throw new Error('请使用桌面 VS Code 的本机工作区。');
     if (!vscode.workspace.isTrusted) throw new Error('请先将工作区设为受信任。');
     const { root, file } = project;
-    const nextClient = await manager.ensure(root, file, { initialReview: project.initialReview, requireExisting: project.initialized !== false });
+    const nextClient = await manager.ensure(root, file, { ...projectPortOptions(vscode, root), initialReview: project.initialReview, requireExisting: project.initialized !== false });
     await storageUi.sync(nextClient);
     const state = await nextClient.request('GET', '/v1/state');
     client = nextClient;

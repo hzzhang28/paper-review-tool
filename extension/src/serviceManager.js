@@ -4,6 +4,7 @@ const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const { randomUUID } = require('node:crypto');
 const { ApiClient } = require('./apiClient');
+const { checkPort, portError } = require('./servicePorts');
 
 class ServiceManager {
   constructor(extensionPath, output, { WorkerClass = Worker, startupMs = 15000, shutdownMs = 5000 } = {}) {
@@ -40,16 +41,22 @@ class ServiceManager {
   }
   async connectOrStart(root, file, options) {
     const client = new ApiClient(root);
+    let connected = false;
     try {
       const state = await client.request('GET', '/v1/state');
       if (state.masterFile !== file) throw Object.assign(Error('This directory already manages a different .tex file.'), { mismatch: true });
-      return client;
+      connected = true;
     } catch (error) { if (error.mismatch) throw error; }
+    if (connected) {
+      await options.onPort?.((await client.connection()).port);
+      return client;
+    }
     if (this.owned && !this.owned.exited) throw Error('The managed service is starting or unavailable. Check Paper Review output.');
+    await checkPort(options.port ?? 0);
     const serviceId = randomUUID();
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
     const worker = new this.WorkerClass(this.serviceFile('hostWorker.js'), {
-      workerData: { root, file, serviceId, initialReview: options.initialReview, requireExisting: options.requireExisting },
+      workerData: { root, file, serviceId, port: options.port ?? 0, initialReview: options.initialReview, requireExisting: options.requireExisting },
       stdout: true, stderr: true, execArgv: [], env
     });
     const record = { worker, root, serviceId, exited: false };
@@ -67,21 +74,22 @@ class ServiceManager {
     });
     worker.on('error', error => this.output?.appendLine(error.message));
     try {
-      await new Promise((resolve, reject) => {
+      const details = await new Promise((resolve, reject) => {
         const cleanup = () => { clearTimeout(timeout); worker.off('message', ready); worker.off('exit', exited); worker.off('error', failed); };
         const failed = error => { cleanup(); reject(Error('VS Code 后台服务启动失败：' + error.message)); };
         const exited = () => failed(Error('Worker exited during startup. ' + diagnostics));
         const ready = message => {
-          if (message?.type === 'fatal') return failed(Error(message.message));
+          if (message?.type === 'fatal') return failed(portError(Object.assign(Error(message.message), { code: message.code }), options.port));
           if (message?.type === 'ready' && message.serviceId === serviceId) {
             record.runtime = message.runtime;
             this.output?.appendLine('后台服务使用 VS Code Node ' + message.runtime.node + '，Worker ' + message.runtime.threadId + '。');
-            cleanup(); resolve();
+            cleanup(); resolve(message);
           }
         };
         const timeout = setTimeout(() => failed(Error('Service startup timed out. ' + diagnostics)), this.startupMs);
         worker.on('message', ready); worker.once('exit', exited); worker.once('error', failed);
       });
+      await options.onPort?.(details.port);
       return client;
     } catch (error) {
       record.expectedStop = true;
