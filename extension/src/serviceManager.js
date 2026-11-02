@@ -7,8 +7,8 @@ const { ApiClient } = require('./apiClient');
 const { checkPort, portError } = require('./servicePorts');
 
 class ServiceManager {
-  constructor(extensionPath, output, { WorkerClass = Worker, startupMs = 15000, shutdownMs = 5000 } = {}) {
-    this.extensionPath = extensionPath; this.output = output;
+  constructor(extensionPath, output, { WorkerClass = Worker, startupMs = 15000, shutdownMs = 5000, ports } = {}) {
+    this.extensionPath = extensionPath; this.output = output; this.ports = ports;
     this.WorkerClass = WorkerClass; this.startupMs = startupMs; this.shutdownMs = shutdownMs;
   }
   get child() { return this.owned?.worker; } // Compatibility for project lifecycle checks.
@@ -41,22 +41,28 @@ class ServiceManager {
   }
   async connectOrStart(root, file, options) {
     const client = new ApiClient(root);
-    let connected = false;
-    try {
+    if (this.owned && !this.owned.exited) {
+      if (this.owned.root !== root) throw Error('请先关闭当前项目。');
       const state = await client.request('GET', '/v1/state');
-      if (state.masterFile !== file) throw Object.assign(Error('This directory already manages a different .tex file.'), { mismatch: true });
-      connected = true;
-    } catch (error) { if (error.mismatch) throw error; }
-    if (connected) {
-      await options.onPort?.((await client.connection()).port);
+      if (state.masterFile !== file) throw Error('This directory already manages a different .tex file.');
       return client;
     }
-    if (this.owned && !this.owned.exited) throw Error('The managed service is starting or unavailable. Check Paper Review output.');
-    await checkPort(options.port ?? 0);
+    // A second window must not attach to or modify an existing service.
+    const { safePath, decode } = require(this.serviceFile('files.js'));
+    const lock = safePath(root, '.paper-manager/service.lock');
+    if (fs.existsSync(lock)) {
+      const owner = JSON.parse(decode(fs.readFileSync(lock)));
+      if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw Error('Invalid service lock.');
+      let live = true;
+      try { process.kill(owner.pid, 0); } catch (error) { if (error.code === 'ESRCH') live = false; else throw error; }
+      if (live) throw Error('该项目已在其他窗口运行，请先关闭另一窗口中的 Paper 项目。');
+    }
+    const plan = this.ports ? await this.ports.prepare(root, options.portPolicy) : { port: options.port ?? 0 };
+    if (!this.ports) await checkPort(plan.port);
     const serviceId = randomUUID();
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
     const worker = new this.WorkerClass(this.serviceFile('hostWorker.js'), {
-      workerData: { root, file, serviceId, port: options.port ?? 0, initialReview: options.initialReview, requireExisting: options.requireExisting },
+      workerData: { root, file, serviceId, port: plan.port, initialReview: options.initialReview, requireExisting: options.requireExisting },
       stdout: true, stderr: true, execArgv: [], env
     });
     const record = { worker, root, serviceId, exited: false };
@@ -79,7 +85,7 @@ class ServiceManager {
         const failed = error => { cleanup(); reject(Error('VS Code 后台服务启动失败：' + error.message)); };
         const exited = () => failed(Error('Worker exited during startup. ' + diagnostics));
         const ready = message => {
-          if (message?.type === 'fatal') return failed(portError(Object.assign(Error(message.message), { code: message.code }), options.port));
+          if (message?.type === 'fatal') return failed(portError(Object.assign(Error(message.message), { code: message.code }), plan.port));
           if (message?.type === 'ready' && message.serviceId === serviceId) {
             record.runtime = message.runtime;
             this.output?.appendLine('后台服务使用 VS Code Node ' + message.runtime.node + '，Worker ' + message.runtime.threadId + '。');
@@ -89,7 +95,7 @@ class ServiceManager {
         const timeout = setTimeout(() => failed(Error('Service startup timed out. ' + diagnostics)), this.startupMs);
         worker.on('message', ready); worker.once('exit', exited); worker.once('error', failed);
       });
-      await options.onPort?.(details.port);
+      await plan.ready?.(details.port);
       return client;
     } catch (error) {
       record.expectedStop = true;

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const { describeProject, projectId } = require('./projects');
 const { VirtualFs } = require('./virtualFs');
 const { ServiceManager } = require('./serviceManager');
-const { projectPortOptions } = require('./servicePorts');
+const { ServicePorts, projectPortOptions } = require('./servicePorts');
 const { ReviewUi } = require('./reviewUi');
 const { IssueFs, serialize: issueText } = require('./issueFs');
 const { CompileManager } = require('./compileManager');
@@ -100,7 +100,8 @@ function activate(context) {
   }
   compileButton();
   const compiler = new CompileManager({ output: buildOutput }); activeCompiler = compiler;
-  const manager = new ServiceManager(context.extensionPath, output);
+  const ports = new ServicePorts(context.globalStorageUri.fsPath, { output, notify: message => { void vscode.window.showInformationMessage(message); } });
+  const manager = new ServiceManager(context.extensionPath, output, { ports });
   activeManager = manager;
   const issueFs = new IssueFs({ workspaceState: context.workspaceState,
     getClient: issueClient,
@@ -837,6 +838,11 @@ function activate(context) {
   provider.onSaved = refreshStatus;
   if (vscode.workspace.onDidChangeConfiguration) context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
     if (event.affectsConfiguration('paperReview.update')) updater.start();
+    if (projectRoot && event.affectsConfiguration('paperReview.service', vscode.Uri.file(projectRoot))) {
+      void ports.configure(projectRoot, projectPortOptions(vscode, projectRoot).portPolicy,
+        { portChanged: event.affectsConfiguration('paperReview.service.port', vscode.Uri.file(projectRoot)),
+          modeChanged: event.affectsConfiguration('paperReview.service.portMode', vscode.Uri.file(projectRoot)) }).catch(showError);
+    }
     if (event.affectsConfiguration('paperReview.storage')) void storageUi.sync().catch(showError);
     if (event.affectsConfiguration('paperReview.overleaf.enabled')) void overleaf.refresh();
     updateTargetButtons();

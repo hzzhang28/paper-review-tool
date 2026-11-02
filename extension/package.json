@@ -1342,18 +1342,15 @@
           "type": "string",
           "enum": [
             "random",
-            "project",
-            "manual"
+            "project"
           ],
           "enumItemLabels": [
             "完全随机",
-            "每个项目固定",
-            "手动指定"
+            "每个项目固定"
           ],
           "enumDescriptions": [
-            "每次启动由系统分配可用端口（默认）。",
-            "首次分配后写入本项目的文件夹设置，以后重复使用。",
-            "使用本项目服务端口设置中的数值。"
+            "未绑定的项目每次启动由系统分配可用端口（默认）。",
+            "将当前项目的模式和端口记入插件全局 JSON，后续启动复用。"
           ],
           "default": "random",
           "scope": "resource",
@@ -1361,7 +1358,7 @@
           "tags": [
             "paperPort"
           ],
-          "description": "项目服务端口模式。请在工作区/文件夹设置中配置；用户级设置不生效。下次服务启动时应用，已运行的服务继续复用。"
+          "description": "项目端口模式。支持用户及工作区设置；已绑定项目以全局 JSON 记录为准。修改当前项目设置会更新绑定，下次启动生效，不重启正在运行的服务。"
         },
         "paperReview.service.port": {
           "type": "integer",
@@ -1373,12 +1370,12 @@
           "tags": [
             "paperPort"
           ],
-          "description": "项目服务端口。固定模式下 0 表示首次自动分配并写入文件夹设置；手动模式必须为 1–65535。随机模式忽略此值。端口被占用时提示并停止启动，不自动换端口。"
+          "description": "固定模式的首次端口种子（10001–49151）；0 或非法种子自动分配。已有固定端口优先读取插件全局 JSON，可直接编辑记录中的 port。修改此设置时更新当前项目记录，下次启动生效。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.4r1",
+  "paperReviewBuild": "0.4.4r2",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"
