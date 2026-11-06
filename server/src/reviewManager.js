@@ -37,9 +37,9 @@ function wholeRange(range, hunks) {
 function contentVersion(sourceVersion, sourceContentHash, contentHash) {
   return contentHash === sourceContentHash ? sourceVersion : hash(`${sourceVersion}:human:${contentHash}`);
 }
-function remap(reviews, before, after, actor = 'human') {
+function remap(reviews, before, after, actor = 'human', suppliedHunks) {
   if (before === after) return structuredClone(reviews);
-  const hunks = changes(before, after), result = [];
+  const hunks = suppliedHunks || changes(before, after), result = [];
   for (const review of reviews) {
     let ranges;
     if (review.kind !== 'token') ranges = [wholeRange(review, hunks)].filter(Boolean);
@@ -91,8 +91,10 @@ function remap(reviews, before, after, actor = 'human') {
   return result;
 }
 function applyAI(previous, before, after, revision, sessionId) {
-  const hunks = changes(before, after), reviews = remap(previous, before, after, 'ai'), events = [];
-  const nodes = scan(after), oldNodes = scan(before), reverse = changes(after, before);
+  const hunks = changes(before, after), reviews = remap(previous, before, after, 'ai', hunks), events = [];
+  // Invert the same alignment; a second budgeted Diff could choose coarser gaps.
+  const reverse = hunks.map(h => ({ start: h.newStart, end: h.newEnd, newStart: h.start, newEnd: h.end, before: h.after, after: h.before }));
+  const nodes = scan(after), oldNodes = scan(before);
   for (const h of hunks) {
     const id = randomUUID();
     events.push({ id, sessionId, revision, before: h.before, after: h.after, start: h.newStart, end: h.newEnd,

@@ -582,6 +582,32 @@ function activate(context) {
     const range = new vscode.Range(draftPosition(editor.document, target.start), draftPosition(editor.document, target.end));
     editor.selection = new vscode.Selection(range.start, range.end); editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
   });
+  async function rejectSelection() {
+    if (operation) throw new Error('正在处理项目操作，请稍后重试。');
+    const editor = await savedEditor(), current = client, version = editor.document.version, draftVersion = provider.version;
+    const selection = editor.selection;
+    if (selection.isEmpty) throw new Error('请先框选要批量拒绝的正文。');
+    const range = { start: draftOffset(editor.document, selection.start), end: draftOffset(editor.document, selection.end) };
+    const choice = await vscode.window.showQuickPick([
+      { label: '逐项拒绝 AI 修改', description: '撤回选区内完整修改，保留无冲突的后续人工编辑', strategy: 'changes' },
+      { label: '从历史版本恢复选区', description: '将选区正文恢复为指定版本，包含选区内人工修改', strategy: 'revision' }
+    ], { title: '批量拒绝修改', ignoreFocusOut: true });
+    if (!choice) return;
+    let revision;
+    if (choice.strategy === 'revision') {
+      revision = await chooseRevision(); if (!revision) return;
+      const confirmed = await vscode.window.showWarningMessage('将选区恢复到 r' + revision + '，选区内的人工修改也会被恢复。结果只保存到 Human Draft，需 Push 后提交。', { modal: true }, '恢复选区');
+      if (confirmed !== '恢复选区') return;
+    }
+    if (client !== current || editor.document.version !== version || editor.document.isDirty || provider.version !== draftVersion) throw new Error('项目或正文已变化，请重新选择范围。');
+    operation = true; provider.busy = true;
+    try {
+      const result = await current.request('POST', '/v1/reviews', { action: 'rejectMany', strategy: choice.strategy, revision, range, expectedDraftVersion: draftVersion });
+      await syncResult(editor, version, result);
+      vscode.window.showInformationMessage(choice.strategy === 'revision' ? '选区已按历史版本恢复；Push 后提交。' : '已批量拒绝 ' + result.rejected + ' 处 AI 修改；Push 后提交。');
+    } finally { provider.busy = false; operation = false; await refreshStatus(); }
+  }
+  register('paperReview.rejectSelection', rejectSelection);
   async function reviewAction(action, item) {
     if (operation) throw new Error('正在处理项目操作，请稍后重试。');
     const editor = await savedEditor();
@@ -599,8 +625,8 @@ function activate(context) {
       } finally { provider.busy = false; operation = false; await refreshStatus(); }
       return;
     }
+    if (action === 'reject' && !targetReview && !selection.isEmpty) return rejectSelection();
     if (!selected.length) throw new Error('请先选择待审核或需修改的范围。');
-    if (action === 'reject' && selected.length > 1) throw new Error('请一次拒绝一处完整修改。');
     operation = true; provider.busy = true;
     try {
       for (const review of selected) {

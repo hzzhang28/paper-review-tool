@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -117,6 +117,10 @@
       {
         "command": "paperReview.reject",
         "title": "Paper: 拒绝修改"
+      },
+      {
+        "command": "paperReview.rejectSelection",
+        "title": "Paper: 批量拒绝修改"
       },
       {
         "command": "paperReview.createIssue",
@@ -380,6 +384,11 @@
           "command": "paperReview.reject",
           "when": "resourceScheme == paper",
           "group": "paperReview@3"
+        },
+        {
+          "command": "paperReview.rejectSelection",
+          "when": "resourceScheme == paper && editorHasSelection",
+          "group": "paperReview@3.1"
         },
         {
           "command": "paperReview.createIssue",
@@ -1375,7 +1384,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.4r2",
+  "paperReviewBuild": "0.4.5r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

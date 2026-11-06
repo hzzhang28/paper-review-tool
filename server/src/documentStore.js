@@ -345,8 +345,14 @@ class DocumentStore {
     if (snapshot === next.master.hash) return;
     const previous = this.text(next.master.hash);
     if (actor === 'ai') {
-      const audit = reviewManager.applyAI(next.reviews, previous, aiText, next.master.revision + 1, sessionId);
-      next.reviews = reviewManager.remap(audit.reviews, aiText, text);
+      let audit, reviews;
+      try {
+        audit = reviewManager.applyAI(next.reviews, previous, aiText, next.master.revision + 1, sessionId);
+        reviews = reviewManager.remap(audit.reviews, aiText, text);
+      } catch (cause) {
+        throw Object.assign(new StoreError('AI 审计生成失败，需人工处理：' + cause.message), { code: 'AI_AUDIT_FAILED', cause });
+      }
+      next.reviews = reviews;
       next.changeEvents.push(...audit.events.map(event => ({ ...event, snapshotHash: this.blob(aiText), baseRevision: next.sessions[sessionId]?.baseRevision })));
     } else next.reviews = reviewManager.remap(next.reviews, previous, text);
     next.issues = this.relocateIssues(next.issues, previous, text);
@@ -539,7 +545,13 @@ class DocumentStore {
       next.aiNotification = { sequence: next.sequence, status: 'conflict', masterRevision: next.master.revision, conflictId: conflict.conflictId };
       return conflict;
     }
-    this.updateMaster(next, files, result.text, 'ai', id);
+    try { this.updateMaster(next, files, result.text, 'ai', id); }
+    catch (error) {
+      if (error.code !== 'AI_AUDIT_FAILED') throw error;
+      const conflict = this.conflict(next, files, 'ai-push', base, master, incoming, [{ reason: error.message }], id);
+      next.aiNotification = { sequence: next.sequence, status: 'conflict', masterRevision: next.master.revision, conflictId: conflict.conflictId };
+      return conflict;
+    }
     session.closed = true; session.pushedRevision = next.master.revision;
     next.aiNotification = { sequence: next.sequence, status: 'submitted', masterRevision: next.master.revision };
     return { ok: true, masterRevision: next.master.revision };
@@ -598,8 +610,92 @@ class DocumentStore {
     next.human.reviews = this.replayReviews(next.human.reviews, operations, text).reviews;
     return { ok: true, draftVersion: next.human.version };
   }
+  rejectSelection(next, files, body) {
+    this.expectDraft(next, body.expectedDraftVersion);
+    const draft = this.text(next.human.draftHash), { start, end } = body.range || {};
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > draft.length) throw new StoreError('请框选要拒绝的正文范围。', 400);
+    const aiEvents = new Map(next.changeEvents.map(event => [event.id, event]));
+    const eventIds = review => (review.eventIds || [review.eventId]).filter(id => aiEvents.has(id));
+    const selected = next.human.reviews.filter(review => review.start < end && review.end > start && review.origin !== 'manual' && (review.origin !== 'initial' || eventIds(review).length));
+    if (selected.some(review => review.origin !== 'initial' && (review.start < start || review.end > end))) throw new StoreError('选区穿过了一处完整修改，请扩大选区后重试。');
+    if (body.strategy === 'revision') {
+      const revision = next.revisions.find(item => item.revision === body.revision);
+      if (!revision) throw new StoreError('所选历史版本不可用。', 404);
+      const previous = this.text(revision.hash), changes = reviewManager.changes(draft, previous);
+      if (changes.some(change => change.start < start && start < change.end || change.start < end && end < change.end)) {
+        throw new StoreError('选区边界位于历史差异内部，无法可靠定位；请扩大到完整差异范围。');
+      }
+      const oldStart = reviewManager.position(start, changes, false), oldEnd = reviewManager.position(end, changes, true);
+      const text = draft.slice(0, start) + previous.slice(oldStart, oldEnd) + draft.slice(end);
+      const rejected = selected.filter(review => review.origin !== 'initial').map(review => ({ reviewId: review.id, wholeEvent: false,
+        eventIds: review.eventIds || [review.eventId], strategy: 'revision', revision: body.revision }));
+      // Remove only explicitly rejected AI marks; initial/manual marks keep their state.
+      next.human.rejections.push(...rejected);
+      next.human.reviews = applyRejections(next.human.reviews, rejected);
+      this.saveDraft(next, files, { text, expectedDraftVersion: next.human.version });
+      return { ok: true, text, draftVersion: next.human.version, rejected: selected.length };
+    }
+    if (body.strategy !== 'changes') throw new StoreError('Unknown rejection strategy.', 400);
+    if (!selected.length) throw new StoreError('选区内没有可拒绝的 AI 修改。');
+    const patches = [], rejected = [], wholeEvents = new Set(), snapshots = new Map();
+    for (const review of selected) {
+      if (review.origin === 'initial' || review.original === null || review.rejectionMode === 'event' || eventIds(review).length > 1) {
+        for (const id of eventIds(review)) wholeEvents.add(id);
+      } else {
+        const result = merge(review.initialText, review.text, review.original);
+        if (!result.ok) throw new StoreError('拒绝与后续编辑冲突，未修改草稿。');
+        patches.push({ start: review.start, end: review.end, text: result.text, review });
+      }
+    }
+    const groups = new Map();
+    for (const id of wholeEvents) {
+      const event = aiEvents.get(id);
+      if (!event?.snapshotHash) throw new StoreError('原修改快照不可用，请选择历史版本恢复。');
+      let snapshot = snapshots.get(event.snapshotHash);
+      if (!snapshot) {
+        const text = this.text(event.snapshotHash);
+        snapshot = { text, changes: reviewManager.changes(text, draft) };
+        snapshots.set(event.snapshotHash, snapshot);
+      }
+      const from = reviewManager.position(event.start, snapshot.changes, false), to = reviewManager.position(event.end, snapshot.changes, true);
+      if (!(from === to ? start < from && from < end : from < end && to > start)) continue;
+      if (from < start || to > end) throw new StoreError('完整撤回会影响选区外内容，请扩大选区。');
+      const group = groups.get(event.snapshotHash) || { snapshot: snapshot.text, revision: event.revision, events: [] };
+      group.events.push(event); groups.set(event.snapshotHash, group);
+    }
+    const groupedIds = new Set([...groups.values()].flatMap(group => group.events.map(event => event.id)));
+    const local = patches.filter(patch => !eventIds(patch.review).some(id => groupedIds.has(id))).sort((a, b) => b.start - a.start);
+    let text = draft;
+    for (let i = 0; i < local.length; i++) {
+      const patch = local[i];
+      if (i && patch.end > local[i - 1].start) throw new StoreError('审计范围重叠，请使用历史版本恢复。');
+      text = text.slice(0, patch.start) + patch.text + text.slice(patch.end);
+      rejected.push({ reviewId: patch.review.id, wholeEvent: false, eventIds: patch.review.eventIds || [patch.review.eventId] });
+    }
+    for (const group of [...groups.values()].sort((a, b) => b.revision - a.revision)) {
+      let inverse = group.snapshot, boundary = inverse.length;
+      for (const event of group.events.sort((a, b) => b.start - a.start)) {
+        if (event.end > boundary) throw new StoreError('原修改事件范围重叠，请使用历史版本恢复。');
+        inverse = inverse.slice(0, event.start) + event.before + inverse.slice(event.end);
+        boundary = event.start;
+      }
+      const result = merge(group.snapshot, text, inverse);
+      if (!result.ok) throw new StoreError('拒绝与后续编辑冲突，未修改草稿。');
+      text = result.text;
+      rejected.push(...group.events.map(event => ({ wholeEvent: true, eventIds: [event.id] })));
+    }
+    const hunks = reviewManager.changes(draft, text);
+    if (!hunks.length) throw new StoreError('选区内没有仍可撤回的 AI 修改。');
+    if (hunks.some(change => change.start < start || change.end > end)) throw new StoreError('完整撤回会影响选区外内容，请扩大选区或选择历史版本恢复。');
+    next.human.rejections.push(...rejected);
+    next.human.reviews = applyRejections(next.human.reviews, rejected);
+    this.saveDraft(next, files, { text, expectedDraftVersion: next.human.version });
+    return { ok: true, text, draftVersion: next.human.version, rejected: local.length + groupedIds.size };
+  }
+
   reviewAction(next, files, body) {
     this.expectDraft(next, body.expectedDraftVersion);
+    if (body.action === 'rejectMany') return this.rejectSelection(next, files, body);
     if (body.range) return this.markSelection(next, body);
     const review = next.human.reviews.find(r => r.id === body.reviewId);
     if (!review || !reviewManager.matches(review, body)) throw new StoreError('Review no longer matches the inspected Draft.');
