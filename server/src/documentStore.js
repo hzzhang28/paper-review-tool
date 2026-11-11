@@ -15,10 +15,11 @@ class StoreError extends Error {
 }
 
 class DocumentStore {
-  constructor(projectRoot, masterFile, { initialReview = 'approved', requireExisting = false, serviceId } = {}) {
+  constructor(projectRoot, masterFile, { initialReview = 'approved', requireExisting = false, serviceId, movement } = {}) {
     if (!['approved', 'unreviewed'].includes(initialReview)) throw new Error('Choose approved or unreviewed initial review status.');
     this.initialReview = initialReview;
     this.serviceId = serviceId;
+    this.movementOptions = require('./movement').options(movement);
     this.root = path.resolve(projectRoot);
     if (fs.realpathSync(this.root).toLowerCase() !== this.root.toLowerCase()) throw new Error('Project root must not traverse links.');
     if (!masterFile.endsWith('.tex') || masterFile.split(/[\\/]/)[0] === '.paper-manager') throw new Error('Select one project-relative .tex file.');
@@ -321,17 +322,24 @@ class DocumentStore {
   }
   humanFile() {
     return { text: this.text(this.state.human.draftHash), version: this.state.human.version,
-      mtime: this.state.human.mtime };
+      mtime: this.state.human.mtime, movementOptions: this.movementOptions };
+  }
+  changeEventsView() {
+    return this.state.changeEvents.map(event => event.type === 'move' && event.beforeHash && event.afterHash ?
+      { ...event, before: this.text(event.beforeHash), after: this.text(event.afterHash) } : event);
+  }
+  remapReviews(reviews, before, after, actor = 'human') {
+    return reviewManager.remap(reviews, before, after, actor, undefined, this.movementOptions);
   }
   saveDraft(next, files, body) {
     this.expectDraft(next, body.expectedDraftVersion);
     if (typeof body.text !== 'string' || !body.text.isWellFormed() || body.text.includes('\r') && /\r(?!\n)/.test(body.text)) throw new StoreError('Expected well-formed UTF-8 text with LF or CRLF.', 400);
     const text = normalize(body.text);
     const previous = this.text(next.human.draftHash);
-    next.human.reviews = reviewManager.remap(next.human.reviews, previous, text);
+    next.human.reviews = this.remapReviews(next.human.reviews, previous, text);
     // Keep staged manual marks aligned with the edited Draft until Push.
     next.human.reviewOps = next.human.reviewOps.flatMap(op => op.action !== 'mark' ? [op] :
-      reviewManager.remap([op.review], this.text(op.snapshotHash), text).map(review => ({ ...op, review, snapshotHash: this.blob(text) })));
+      this.remapReviews([op.review], this.text(op.snapshotHash), text).map(review => ({ ...op, review, snapshotHash: this.blob(text) })));
     next.human.issues = this.relocateIssues(next.human.issues, previous, text);
     next.human.issueOps = next.human.issueOps.map(op => ({ ...op, issue: next.human.issues.find(issue => issue.id === op.issue.id) || op.issue }));
     next.human.draftHash = this.blob(text);
@@ -347,14 +355,19 @@ class DocumentStore {
     if (actor === 'ai') {
       let audit, reviews;
       try {
-        audit = reviewManager.applyAI(next.reviews, previous, aiText, next.master.revision + 1, sessionId);
-        reviews = reviewManager.remap(audit.reviews, aiText, text);
+        audit = reviewManager.applyAI(next.reviews, previous, aiText, next.master.revision + 1, sessionId, this.movementOptions);
+        reviews = this.remapReviews(audit.reviews, aiText, text);
       } catch (cause) {
         throw Object.assign(new StoreError('AI 审计生成失败，需人工处理：' + cause.message), { code: 'AI_AUDIT_FAILED', cause });
       }
       next.reviews = reviews;
-      next.changeEvents.push(...audit.events.map(event => ({ ...event, snapshotHash: this.blob(aiText), baseRevision: next.sessions[sessionId]?.baseRevision })));
-    } else next.reviews = reviewManager.remap(next.reviews, previous, text);
+      next.changeEvents.push(...audit.events.map(event => {
+        // A reorder can span most of the paper. Keep its before/after text in
+        // the existing content-addressed blob store rather than every SQL state.
+        const stored = event.type === 'move' ? { ...event, beforeHash: this.blob(event.before), afterHash: this.blob(event.after), before: undefined, after: undefined } : event;
+        return { ...stored, snapshotHash: this.blob(aiText), baseRevision: next.sessions[sessionId]?.baseRevision };
+      }));
+    } else next.reviews = this.remapReviews(next.reviews, previous, text);
     next.issues = this.relocateIssues(next.issues, previous, text);
     const diskText = text.replace(/\n/g, next.eol);
     next.master = { revision: next.master.revision + 1, hash: snapshot, diskHash: hash(diskText) };
@@ -444,7 +457,7 @@ class DocumentStore {
     const base = this.text(next.human.baseHash), draft = this.text(next.human.draftHash), master = this.text(next.master.hash);
     const result = merge(base, draft, master);
     if (!result.ok) return this.conflict(next, files, 'human-pull', base, draft, master, result.conflicts);
-    next.human.reviews = this.replayReviews(reviewManager.remap(next.reviews, master, result.text), next.human.reviewOps, result.text).reviews;
+    next.human.reviews = this.replayReviews(this.remapReviews(next.reviews, master, result.text), next.human.reviewOps, result.text).reviews;
     next.human.reviews = applyRejections(next.human.reviews, next.human.rejections);
     const pulledIssues = this.relocateIssues(next.issues, master, result.text);
     const operations = [], staleIssueDeletes = [];
@@ -592,7 +605,7 @@ class DocumentStore {
     let gaps = [{ start, end }];
     const operations = [];
     for (const review of next.human.reviews) {
-      if (review.start >= end || review.end <= start) continue;
+      if (review.kind === 'move' || review.start >= end || review.end <= start) continue;
       operations.push({ reviewId: review.id, version: review.version, contentHash: review.contentHash,
         sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action,
         selection: { start: Math.max(start, review.start) - review.start, end: Math.min(end, review.end) - review.start } });
@@ -614,11 +627,15 @@ class DocumentStore {
     this.expectDraft(next, body.expectedDraftVersion);
     const draft = this.text(next.human.draftHash), { start, end } = body.range || {};
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > draft.length) throw new StoreError('请框选要拒绝的正文范围。', 400);
+    if (body.strategy === 'movement') return this.rejectMovements(next, files, body);
     const aiEvents = new Map(next.changeEvents.map(event => [event.id, event]));
     const eventIds = review => (review.eventIds || [review.eventId]).filter(id => aiEvents.has(id));
-    const selected = next.human.reviews.filter(review => review.start < end && review.end > start && review.origin !== 'manual' && (review.origin !== 'initial' || eventIds(review).length));
+    const selected = next.human.reviews.filter(review => review.start < end && review.end > start && review.kind !== 'move' && review.origin !== 'manual' && (review.origin !== 'initial' || eventIds(review).length));
     if (selected.some(review => review.origin !== 'initial' && (review.start < start || review.end > end))) throw new StoreError('选区穿过了一处完整修改，请扩大选区后重试。');
     if (body.strategy === 'revision') {
+      if (next.human.reviews.some(r => r.kind === 'move' && r.start < end && r.end > start) && (start !== 0 || end !== draft.length)) {
+        throw new StoreError('选区包含位置调整，请使用“撤回位置调整”或选择全文恢复历史版本。');
+      }
       const revision = next.revisions.find(item => item.revision === body.revision);
       if (!revision) throw new StoreError('所选历史版本不可用。', 404);
       const previous = this.text(revision.hash), changes = reviewManager.changes(draft, previous);
@@ -627,7 +644,8 @@ class DocumentStore {
       }
       const oldStart = reviewManager.position(start, changes, false), oldEnd = reviewManager.position(end, changes, true);
       const text = draft.slice(0, start) + previous.slice(oldStart, oldEnd) + draft.slice(end);
-      const rejected = selected.filter(review => review.origin !== 'initial').map(review => ({ reviewId: review.id, wholeEvent: false,
+      const historical = selected.concat(next.human.reviews.filter(r => r.kind === 'move' && start === 0 && end === draft.length));
+      const rejected = historical.filter(review => review.origin !== 'initial').map(review => ({ reviewId: review.id, wholeEvent: review.kind === 'move',
         eventIds: review.eventIds || [review.eventId], strategy: 'revision', revision: body.revision }));
       // Remove only explicitly rejected AI marks; initial/manual marks keep their state.
       next.human.rejections.push(...rejected);
@@ -693,6 +711,40 @@ class DocumentStore {
     return { ok: true, text, draftVersion: next.human.version, rejected: local.length + groupedIds.size };
   }
 
+  rejectMovements(next, files, body, only) {
+    this.expectDraft(next, body.expectedDraftVersion);
+    const selected = only || next.human.reviews.filter(r => r.kind === 'move' && r.start < body.range.end && r.end > body.range.start);
+    if (!selected.length) throw new StoreError('选区内没有待确认的位置调整。');
+    const events = [...new Set(selected.map(r => r.eventId))].map(id => next.changeEvents.find(event => event.id === id));
+    let text = this.text(next.human.draftHash);
+    for (const event of events.sort((a, b) => (b?.revision || 0) - (a?.revision || 0))) {
+      if (!event?.movement?.canReject || !event.snapshotHash) throw new StoreError('片段间含未匹配的正文，无法安全单独撤回位置；请从全文历史版本恢复或手工处理。');
+      const snapshot = this.text(event.snapshotHash);
+      const matched = require('./movement').analyze(snapshot, text, this.movementOptions);
+      const slots = event.movement.slots?.map(slot => {
+        const pair = matched.pairs.find(pair => pair.from.start === slot.start && pair.from.end === slot.end);
+        return pair && { ...slot, target: pair.to };
+      });
+      if (!slots?.length || slots.some(slot => !slot) || slots.some((slot, i) => i && slot.target.start <= slots[i - 1].target.start)) {
+        throw new StoreError('移动片段已再次重排或无法唯一对应，未修改草稿。请使用历史版本或手工处理。');
+      }
+      if (slots.slice(1).some((slot, i) => text.slice(slots[i].target.end, slot.target.start).trim())) {
+        throw new StoreError('移动片段之间新增了正文，无法安全单独撤回位置。');
+      }
+      const source = [...slots].sort((a, b) => a.order - b.order);
+      let inverse = '', at = slots[0].target.start;
+      for (let i = 0; i < slots.length; i++) {
+        inverse += text.slice(at, slots[i].target.start) + source[i].target.raw;
+        at = slots[i].target.end;
+      }
+      text = text.slice(0, slots[0].target.start) + inverse + text.slice(at);
+    }
+    const rejected = events.map(event => ({ wholeEvent: true, eventIds: [event.id], strategy: 'movement' }));
+    next.human.rejections.push(...rejected);
+    next.human.reviews = applyRejections(next.human.reviews, rejected);
+    this.saveDraft(next, files, { text, expectedDraftVersion: next.human.version });
+    return { ok: true, text, draftVersion: next.human.version, rejected: events.length };
+  }
   reviewAction(next, files, body) {
     this.expectDraft(next, body.expectedDraftVersion);
     if (body.action === 'rejectMany') return this.rejectSelection(next, files, body);
@@ -701,6 +753,7 @@ class DocumentStore {
     if (!review || !reviewManager.matches(review, body)) throw new StoreError('Review no longer matches the inspected Draft.');
     if (!['approve', 'unreviewed', 'needsFix', 'reject'].includes(body.action)) throw new StoreError('Unknown review action.', 400);
     if (body.action === 'reject') {
+      if (review.kind === 'move') return this.rejectMovements(next, files, body, [review]);
       if (review.origin === 'manual') throw new StoreError('Manual marks have no AI change to reject. Edit or approve the text.');
       if (review.origin === 'initial') throw new StoreError('Initial text has no earlier version to restore. Edit it manually, mark Needs Fix, or approve it.');
       let text, result;
@@ -725,6 +778,7 @@ class DocumentStore {
       next.human.reviews = applyRejections(next.human.reviews, [rejected]);
       return { ok: true, text, draftVersion: next.human.version };
     }
+    if (review.kind === 'move' && body.selection) throw new StoreError('位置调整需按完整片段确认。', 400);
     if (body.selection) {
       const s = body.selection;
       if (review.kind !== 'token' || !Number.isInteger(s.start) || !Number.isInteger(s.end) || s.start < 0 || s.end > review.text.length || s.end <= s.start) throw new StoreError('Select a valid token range or the entire paragraph.', 400);
@@ -824,7 +878,7 @@ class DocumentStore {
     if (conflict.kind === 'human-pull' && !body.syncHuman) {
       this.saveDraft(next, files, { text, expectedDraftVersion: next.human.version });
       next.human.baseHash = next.master.hash; next.human.baseRevision = next.master.revision; next.human.pulledRevision = next.master.revision;
-      next.human.reviews = this.replayReviews(reviewManager.remap(next.reviews, this.text(next.master.hash), text), next.human.reviewOps, text).reviews;
+      next.human.reviews = this.replayReviews(this.remapReviews(next.reviews, this.text(next.master.hash), text), next.human.reviewOps, text).reviews;
       const localIds = new Set(next.human.issueOps.map(op => op.issue.id));
       next.human.issues = this.relocateIssues(next.issues, this.text(next.master.hash), text).filter(issue => !localIds.has(issue.id)).concat(next.human.issueOps.filter(op => op.action !== 'delete').map(op => op.issue));
     } else {

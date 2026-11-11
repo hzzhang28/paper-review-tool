@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -121,6 +121,14 @@
       {
         "command": "paperReview.rejectSelection",
         "title": "Paper: 批量拒绝修改"
+      },
+      {
+        "command": "paperReview.approveMovement",
+        "title": "Paper: 通过位置调整"
+      },
+      {
+        "command": "paperReview.rejectMovement",
+        "title": "Paper: 撤回位置调整"
       },
       {
         "command": "paperReview.createIssue",
@@ -394,6 +402,16 @@
           "command": "paperReview.createIssue",
           "when": "resourceScheme == paper",
           "group": "paperReview@4"
+        },
+        {
+          "command": "paperReview.approveMovement",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@3.2"
+        },
+        {
+          "command": "paperReview.rejectMovement",
+          "when": "resourceScheme == paper",
+          "group": "paperReview@3.3"
         }
       ],
       "view/title": [
@@ -1380,11 +1398,29 @@
             "paperPort"
           ],
           "description": "固定模式的首次端口种子（10001–49151）；0 或非法种子自动分配。已有固定端口优先读取插件全局 JSON，可直接编辑记录中的 port。修改此设置时更新当前项目记录，下次启动生效。"
+        },
+        "paperReview.review.movementThreshold": {
+          "type": "number",
+          "minimum": 50,
+          "maximum": 100,
+          "default": 80,
+          "scope": "resource",
+          "order": 63,
+          "description": "移动识别的有序词重合度门槛（百分比）。行内公式整体计一个词。修改后下次服务启动生效。"
+        },
+        "paperReview.review.movementMinWords": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 400,
+          "default": 8,
+          "scope": "resource",
+          "order": 64,
+          "description": "标点之间的片段两边均需达到的最少词数，才进入移动识别。重复、多候选、过长或不完整的公式范围保持原审计逻辑。修改后下次服务启动生效。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.5r1",
+  "paperReviewBuild": "0.4.6r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

@@ -7,8 +7,8 @@ const { DocumentStore, StoreError } = require('./documentStore');
 const { hash, safePath, atomicWrite } = require('./files');
 const gitAdapter = require('./gitAdapter');
 
-function startServer({ root, file, port = 0, onShutdown, initialReview, requireExisting, serviceId = randomUUID(), runtime, onReady }) {
-  const store = new DocumentStore(root, file, { initialReview, requireExisting, serviceId });
+function startServer({ root, file, port = 0, onShutdown, initialReview, requireExisting, serviceId = randomUUID(), runtime, onReady, movement }) {
+  const store = new DocumentStore(root, file, { initialReview, requireExisting, serviceId, movement });
   const token = randomBytes(32).toString('hex');
   const discovery = safePath(store.root, '.paper-manager/connection.json');
   let queue = Promise.resolve(), processingPending = false, stopping = false;
@@ -52,7 +52,7 @@ function startServer({ root, file, port = 0, onShutdown, initialReview, requireE
         else if (route === 'GET /v1/conflicts') result = store.state.conflicts;
         else if (route === 'GET /v1/reviews') result = url.searchParams.get('scope') === 'master' ? store.state.reviews : store.state.human.reviews;
         else if (route === 'GET /v1/issues') result = url.searchParams.get('scope') === 'master' ? store.state.issues : store.state.human.issues;
-        else if (route === 'GET /v1/events') result = store.state.changeEvents;
+        else if (route === 'GET /v1/events') result = store.changeEventsView();
         else if (route === 'GET /v1/storage') result = store.storageInfo();
         else if (/^GET \/v1\/revisions\/\d+$/.test(route)) {
           const revision = Number(url.pathname.split('/').at(-1));

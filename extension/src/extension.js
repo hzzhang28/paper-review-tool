@@ -53,6 +53,11 @@ function activate(context) {
   const chatWeb = new ChatWeb(vscode);
   const webViews = new Map([[CHAT_URL, chatWeb]]), agentPanels = new Map();
   const config = () => vscode.workspace.getConfiguration('paperReview');
+  const serviceOptions = root => {
+    const settings = vscode.workspace.getConfiguration('paperReview', vscode.Uri.file(root));
+    return { ...projectPortOptions(vscode, root), movement: {
+      threshold: (settings.get('review.movementThreshold') ?? 80) / 100, minWords: settings.get('review.movementMinWords') ?? 8 } };
+  };
   const storageUi = new StorageUi(vscode, () => client ? { client, root: projectRoot } : undefined, () => refreshStatus(true));
   const overleaf = new OverleafUi(vscode, context, () => projectRoot ? { root: projectRoot, file: masterFile } : undefined);
   context.subscriptions.push(overleaf);
@@ -191,14 +196,14 @@ function activate(context) {
     } catch (error) {
       if (client !== current || transitioning) return;
       status.text = 'Paper | 服务不可用'; status.tooltip = error.message; status.show();
-      if (projectRoot && !operation) { try { client = await manager.ensure(projectRoot, masterFile, { ...projectPortOptions(vscode, projectRoot), requireExisting: true }); } catch (failure) { output.appendLine(failure.message); } }
+      if (projectRoot && !operation) { try { client = await manager.ensure(projectRoot, masterFile, { ...serviceOptions(projectRoot), requireExisting: true }); } catch (failure) { output.appendLine(failure.message); } }
     }
   }
   async function connect(project, resource) {
     if (vscode.env.remoteName) throw new Error('请使用桌面 VS Code 的本机工作区。');
     if (!vscode.workspace.isTrusted) throw new Error('请先将工作区设为受信任。');
     const { root, file } = project;
-    const nextClient = await manager.ensure(root, file, { ...projectPortOptions(vscode, root), initialReview: project.initialReview, requireExisting: project.initialized !== false });
+    const nextClient = await manager.ensure(root, file, { ...serviceOptions(root), initialReview: project.initialReview, requireExisting: project.initialized !== false });
     await storageUi.sync(nextClient);
     const state = await nextClient.request('GET', '/v1/state');
     client = nextClient;
@@ -582,14 +587,21 @@ function activate(context) {
     const range = new vscode.Range(draftPosition(editor.document, target.start), draftPosition(editor.document, target.end));
     editor.selection = new vscode.Selection(range.start, range.end); editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
   });
-  async function rejectSelection() {
+  async function rejectSelection(forced) {
     if (operation) throw new Error('正在处理项目操作，请稍后重试。');
     const editor = await savedEditor(), current = client, version = editor.document.version, draftVersion = provider.version;
     const selection = editor.selection;
-    if (selection.isEmpty) throw new Error('请先框选要批量拒绝的正文。');
-    const range = { start: draftOffset(editor.document, selection.start), end: draftOffset(editor.document, selection.end) };
-    const choice = await vscode.window.showQuickPick([
+    if (selection.isEmpty && forced !== 'movement') throw new Error('请先框选要批量拒绝的正文。');
+    let range = { start: draftOffset(editor.document, selection.start), end: draftOffset(editor.document, selection.end) };
+    if (forced === 'movement' && selection.isEmpty) {
+      await ui.refresh();
+      const moves = ui.reviews.filter(r => r.kind === 'move' && r.start <= range.start && r.end >= range.start);
+      if (!moves.length) throw new Error('光标处没有待确认的位置调整。');
+      range = { start: Math.min(...moves.map(r => r.start)), end: Math.max(...moves.map(r => r.end)) };
+    }
+    const choice = forced === 'movement' ? { strategy: 'movement' } : await vscode.window.showQuickPick([
       { label: '逐项拒绝 AI 修改', description: '撤回选区内完整修改，保留无冲突的后续人工编辑', strategy: 'changes' },
+      { label: '撤回位置调整', description: '成组恢复原相对顺序，保留本次文字修改；可能影响选区外的旧位置', strategy: 'movement' },
       { label: '从历史版本恢复选区', description: '将选区正文恢复为指定版本，包含选区内人工修改', strategy: 'revision' }
     ], { title: '批量拒绝修改', ignoreFocusOut: true });
     if (!choice) return;
@@ -599,23 +611,31 @@ function activate(context) {
       const confirmed = await vscode.window.showWarningMessage('将选区恢复到 r' + revision + '，选区内的人工修改也会被恢复。结果只保存到 Human Draft，需 Push 后提交。', { modal: true }, '恢复选区');
       if (confirmed !== '恢复选区') return;
     }
+    if (choice.strategy === 'movement') {
+      const confirmed = await vscode.window.showWarningMessage('将成组撤回相关位置调整，包含选区外的旧位置。保留该次文字修改；后续编辑冲突时整批停止。', { modal: true }, '撤回位置调整');
+      if (confirmed !== '撤回位置调整') return;
+    }
     if (client !== current || editor.document.version !== version || editor.document.isDirty || provider.version !== draftVersion) throw new Error('项目或正文已变化，请重新选择范围。');
     operation = true; provider.busy = true;
     try {
       const result = await current.request('POST', '/v1/reviews', { action: 'rejectMany', strategy: choice.strategy, revision, range, expectedDraftVersion: draftVersion });
       await syncResult(editor, version, result);
-      vscode.window.showInformationMessage(choice.strategy === 'revision' ? '选区已按历史版本恢复；Push 后提交。' : '已批量拒绝 ' + result.rejected + ' 处 AI 修改；Push 后提交。');
+      vscode.window.showInformationMessage(choice.strategy === 'movement' ? '位置调整已撤回；Push 后提交。' : choice.strategy === 'revision' ? '选区已按历史版本恢复；Push 后提交。' : '已批量拒绝 ' + result.rejected + ' 处 AI 修改；Push 后提交。');
     } finally { provider.busy = false; operation = false; await refreshStatus(); }
   }
-  register('paperReview.rejectSelection', rejectSelection);
-  async function reviewAction(action, item) {
+  register('paperReview.rejectSelection', () => rejectSelection());
+  register('paperReview.rejectMovement', () => rejectSelection('movement'));
+  register('paperReview.approveMovement', item => reviewAction('approve', item, true));
+  async function reviewAction(action, item, placementOnly = false) {
     if (operation) throw new Error('正在处理项目操作，请稍后重试。');
     const editor = await savedEditor();
     await ui.refresh();
     const selection = editor.selection, start = draftOffset(editor.document, selection.start), end = draftOffset(editor.document, selection.end);
     // Editor context menus pass a document URI, whereas review items carry .review.
     const targetReview = item?.review;
-    const selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.start < end && r.end > start);
+    let selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.start < end && r.end > start);
+    if (placementOnly) selected = selected.filter(r => r.kind === 'move');
+    else if (selected.some(r => r.kind !== 'move')) selected = selected.filter(r => r.kind !== 'move');
     if (!targetReview && ['unreviewed', 'needsFix'].includes(action)) {
       operation = true; provider.busy = true;
       try {
@@ -625,6 +645,7 @@ function activate(context) {
       } finally { provider.busy = false; operation = false; await refreshStatus(); }
       return;
     }
+    if (action === 'reject' && selected.length && selected.every(r => r.kind === 'move')) return rejectSelection('movement');
     if (action === 'reject' && !targetReview && !selection.isEmpty) return rejectSelection();
     if (!selected.length) throw new Error('请先选择待审核或需修改的范围。');
     operation = true; provider.busy = true;

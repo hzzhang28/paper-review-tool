@@ -11,7 +11,7 @@ function applyReviewOperations(reviews, operations, context) {
       if (!marked) { stale.push(operation); continue; }
       // Old manual marks cannot overwrite newer AI reviews.
       let ranges = [{ start: marked.start, end: marked.end }];
-      for (const existing of result) ranges = ranges.flatMap(r => existing.start >= r.end || existing.end <= r.start ? [r] :
+      for (const existing of result.filter(r => r.kind !== 'move')) ranges = ranges.flatMap(r => existing.start >= r.end || existing.end <= r.start ? [r] :
         [{ start: r.start, end: Math.min(r.end, existing.start) }, { start: Math.max(r.start, existing.end), end: r.end }].filter(r => r.end > r.start));
       for (const range of ranges) {
         const text = marked.text.slice(range.start - marked.start, range.end - marked.start);

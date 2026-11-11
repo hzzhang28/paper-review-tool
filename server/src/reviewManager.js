@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const { tokens, edits } = require('./mergeEngine');
 const { hash } = require('./files');
 const { scan } = require('./structures');
+const movement = require('./movement');
 
 function changes(before, after) {
   const base = tokens(before), offsets = [0];
@@ -37,7 +38,7 @@ function wholeRange(range, hunks) {
 function contentVersion(sourceVersion, sourceContentHash, contentHash) {
   return contentHash === sourceContentHash ? sourceVersion : hash(`${sourceVersion}:human:${contentHash}`);
 }
-function remap(reviews, before, after, actor = 'human', suppliedHunks) {
+function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
   if (before === after) return structuredClone(reviews);
   const hunks = suppliedHunks || changes(before, after), result = [];
   for (const review of reviews) {
@@ -90,8 +91,8 @@ function remap(reviews, before, after, actor = 'human', suppliedHunks) {
   }
   return result;
 }
-function applyAI(previous, before, after, revision, sessionId) {
-  const hunks = changes(before, after), reviews = remap(previous, before, after, 'ai', hunks), events = [];
+function applyAILegacy(previous, before, after, revision, sessionId, mapped) {
+  const hunks = changes(before, after), reviews = mapped || remapLegacy(previous, before, after, 'ai', hunks), events = [];
   // Invert the same alignment; a second budgeted Diff could choose coarser gaps.
   const reverse = hunks.map(h => ({ start: h.newStart, end: h.newEnd, newStart: h.start, newEnd: h.end, before: h.after, after: h.before }));
   const nodes = scan(after), oldNodes = scan(before);
@@ -115,7 +116,7 @@ function applyAI(previous, before, after, revision, sessionId) {
       [{ ...r, end: Math.min(r.end, group.start) }, { ...r, start: Math.max(r.start, group.end) }].filter(r => r.end > r.start));
     for (const range of ranges.concat(residual)) {
       const { kind } = range;
-      const covering = reviews.find(r => r.kind !== 'token' && r.start <= range.start && r.end >= range.end);
+      const covering = reviews.find(r => r.kind !== 'token' && r.kind !== 'move' && r.start <= range.start && r.end >= range.end);
       if (covering) { covering.eventIds = [...(covering.eventIds || [covering.eventId]), id]; covering.revision = revision; continue; }
       // Current state + current edit only. History never decides review status.
       const original = before.slice(position(range.start, reverse), position(range.end, reverse, true));
@@ -127,6 +128,123 @@ function applyAI(previous, before, after, revision, sessionId) {
     }
   }
   return { reviews, events };
+}
+function movementAnalysis(before, after, options) {
+  const analysis = movement.analyze(before, after, movement.options(options));
+  return analysis.pairs.some(pair => pair.eligible && pair.moved) ? analysis : null;
+}
+function fragment(review, start, end, text) {
+  const full = start === review.start && end === review.end, value = text.slice(start, end);
+  if (!value.trim()) return null;
+  if (full) return { ...review, start, end, text: value, contentHash: hash(value) };
+  const sourceVersion = hash((review.sourceVersion || review.version) + ':slice:' + (start - review.start) + ':' + (end - review.start));
+  return { ...review, id: hash(review.id + ':slice:' + (start - review.start) + ':' + (end - review.start)),
+    start, end, text: value, contentHash: hash(value), sourceVersion, sourceContentHash: hash(value),
+    version: sourceVersion, initialText: value, original: null, rejectionMode: 'event' };
+}
+function outside(reviews, ranges, text) {
+  return reviews.flatMap(review => {
+    let pieces = [{ start: review.start, end: review.end }];
+    for (const range of ranges) pieces = pieces.flatMap(piece => range.start >= piece.end || range.end <= piece.start ? [piece] :
+      [{ start: piece.start, end: Math.min(piece.end, range.start) }, { start: Math.max(piece.start, range.end), end: piece.end }].filter(p => p.end > p.start));
+    return pieces.map(piece => fragment(review, piece.start, piece.end, text)).filter(Boolean);
+  });
+}
+function pairHunks(pair) {
+  return pair.changes.map(change => {
+    let { oldStart: start, oldEnd: end, start: newStart, end: newEnd } = change;
+    const before = pair.from.raw, after = pair.to.raw;
+    while (start < end && newStart < newEnd && /\s/u.test(before[start - pair.from.start]) &&
+      before[start - pair.from.start] === after[newStart - pair.to.start]) { start++; newStart++; }
+    while (start < end && newStart < newEnd && /\s/u.test(before[end - pair.from.start - 1]) &&
+      before[end - pair.from.start - 1] === after[newEnd - pair.to.start - 1]) { end--; newEnd--; }
+    return { start, end, newStart, newEnd, before: before.slice(start - pair.from.start, end - pair.from.start),
+      after: after.slice(newStart - pair.to.start, newEnd - pair.to.start) };
+  });
+}
+function remap(reviews, before, after, actor = 'human', suppliedHunks, options, suppliedAnalysis) {
+  if (before === after) return structuredClone(reviews);
+  const hunks = suppliedHunks || changes(before, after), analysis = suppliedAnalysis === undefined ? movementAnalysis(before, after, options) : suppliedAnalysis;
+  const legacy = remapLegacy(reviews, before, after, actor, hunks);
+  if (!analysis) return legacy;
+  const pairs = analysis.pairs.filter(pair => pair.eligible), result = outside(legacy, pairs.map(pair => pair.to), after);
+  for (const pair of pairs) {
+    const local = pairHunks(pair).map(h => ({ ...h, start: h.start - pair.from.start, end: h.end - pair.from.start,
+      newStart: h.newStart - pair.to.start, newEnd: h.newEnd - pair.to.start }));
+    for (const review of reviews) {
+      // A new AI relocation requires a new placement decision. Its text reviews
+      // retain their own identities and status independently.
+      if (review.kind === 'move' && actor === 'ai' && pair.moved) continue;
+      const start = Math.max(review.start, pair.from.start), end = Math.min(review.end, pair.from.end);
+      if (end <= start) continue;
+      let pieces = [{ start, end }];
+      if (actor === 'ai') for (const h of local) pieces = pieces.flatMap(piece => {
+        const a = h.start + pair.from.start, b = h.end + pair.from.start;
+        if (a >= piece.end || b <= piece.start) return [piece];
+        return [{ start: piece.start, end: Math.min(piece.end, a) }, { start: Math.max(piece.start, b), end: piece.end }].filter(p => p.end > p.start);
+      });
+      for (const piece of pieces) {
+        const clipped = fragment(review, piece.start, piece.end, before); if (!clipped) continue;
+        const localReview = { ...clipped, start: piece.start - pair.from.start, end: piece.end - pair.from.start };
+        if (actor === 'ai') {
+          const start = position(localReview.start, local, true), end = position(localReview.end, local, false);
+          if (end > start && pair.to.raw.slice(start, end) === clipped.text) result.push({ ...clipped, start: start + pair.to.start, end: end + pair.to.start });
+        } else for (const mapped of remapLegacy([localReview], pair.from.raw, pair.to.raw, actor, local)) {
+          result.push({ ...mapped, start: mapped.start + pair.to.start, end: mapped.end + pair.to.start });
+        }
+      }
+    }
+  }
+  return result;
+}
+function movementEvent(analysis, before, after, revision, sessionId) {
+  const ordered = [...analysis.pairs].sort((a, b) => a.to.index - b.to.index), original = [...ordered].sort((a, b) => a.from.index - b.from.index);
+  const different = ordered.map((pair, i) => pair === original[i] ? -1 : i).filter(i => i >= 0);
+  if (!different.length) return null;
+  const first = different[0], last = different.at(-1), slots = ordered.slice(first, last + 1);
+  const source = [...slots].sort((a, b) => a.from.index - b.from.index);
+  const start = slots[0].to.start, end = slots.at(-1).to.end;
+  const cleanGaps = (list, key, text) => list.slice(1).every((pair, i) => !text.slice(list[i][key].end, pair[key].start).trim());
+  const canReject = cleanGaps(slots, 'to', after) && cleanGaps(source, 'from', before);
+  let inverse = '', at = start;
+  for (let i = 0; i < slots.length; i++) {
+    inverse += after.slice(at, slots[i].to.start) + source[i].to.raw; at = slots[i].to.end;
+  }
+  inverse += after.slice(at, end);
+  return { id: randomUUID(), sessionId, revision, type: 'move', start, end,
+    before: canReject ? inverse : before.slice(source[0].from.start, source.at(-1).from.end), after: after.slice(start, end),
+    movement: { canReject, slots: slots.map(pair => ({ start: pair.to.start, end: pair.to.end, order: pair.from.index })), count: slots.filter(pair => pair.eligible && pair.moved).length }, time: Date.now() };
+}
+function applyAI(previous, before, after, revision, sessionId, options) {
+  const analysis = movementAnalysis(before, after, options);
+  const mapped = remap(previous, before, after, 'ai', undefined, options, analysis);
+  const audit = applyAILegacy(previous, before, after, revision, sessionId, structuredClone(mapped));
+  if (!analysis) return audit;
+  const pairs = analysis.pairs.filter(pair => pair.eligible), targets = pairs.map(pair => pair.to);
+  const reviews = outside(audit.reviews, targets, after);
+  // Restore the current content reviews projected through the same exact pairs.
+  for (const review of mapped) for (const pair of pairs) {
+    const start = Math.max(review.start, pair.to.start), end = Math.min(review.end, pair.to.end);
+    if (end > start) { const piece = fragment(review, start, end, after); if (piece) reviews.push(piece); }
+  }
+  const relocation = movementEvent(analysis, before, after, revision, sessionId);
+  if (relocation) audit.events.push(relocation);
+  for (const pair of pairs) {
+    for (const h of pairHunks(pair)) {
+      const event = { id: randomUUID(), sessionId, revision, before: h.before, after: h.after, start: h.newStart, end: h.newEnd,
+        type: !h.before ? 'insert' : !h.after ? 'delete' : 'replace', time: Date.now() };
+      audit.events.push(event);
+      if (!h.after.trim()) continue;
+      reviews.push({ id: randomUUID(), eventId: event.id, eventIds: [event.id], start: h.newStart, end: h.newEnd, kind: 'token', status: 'unreviewed',
+        text: h.after, initialText: h.after, original: h.before, version: randomUUID(), contentHash: hash(h.after), revision });
+    }
+    if (pair.moved && relocation) reviews.push({ id: randomUUID(), eventId: relocation.id, eventIds: [relocation.id],
+      start: pair.to.start, end: pair.to.end, kind: 'move', status: 'unreviewed', text: pair.to.raw, initialText: pair.to.raw,
+      original: null, rejectionMode: 'event', version: randomUUID(), contentHash: hash(pair.to.raw), revision,
+      movement: { sourceStart: pair.from.start, sourceEnd: pair.from.end, similarity: pair.score,
+        sourceIndex: pair.from.index, targetIndex: pair.to.index, ambiguous: pair.orderAmbiguous, canReject: relocation.movement.canReject } });
+  }
+  return { reviews, events: audit.events };
 }
 function matches(review, operation) {
   return review.id === operation.reviewId && review.version === operation.version && review.contentHash === operation.contentHash;

@@ -62,7 +62,7 @@ class ServiceManager {
     const serviceId = randomUUID();
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
     const worker = new this.WorkerClass(this.serviceFile('hostWorker.js'), {
-      workerData: { root, file, serviceId, port: plan.port, initialReview: options.initialReview, requireExisting: options.requireExisting },
+      workerData: { root, file, serviceId, port: plan.port, movement: options.movement, initialReview: options.initialReview, requireExisting: options.requireExisting },
       stdout: true, stderr: true, execArgv: [], env
     });
     const record = { worker, root, serviceId, exited: false };
