@@ -12,6 +12,7 @@ class ReviewUi {
     this.yellow = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(230, 185, 35, 0.25)', overviewRulerColor: '#d6af22', overviewRulerLane: vscode.OverviewRulerLane.Right });
     this.red = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(220, 55, 55, 0.25)', overviewRulerColor: '#df5555', overviewRulerLane: vscode.OverviewRulerLane.Right });
     this.issueMark = vscode.window.createTextEditorDecorationType({ borderWidth: '0 0 1px 0', borderStyle: 'solid', borderColor: '#568cdd', textDecoration: 'underline' });
+    this.deletions = vscode.window.createTextEditorDecorationType({ after: { color: new vscode.ThemeColor('editorError.foreground'), textDecoration: 'line-through', margin: '0 0 0 0.4em' } });
     this.outlineProvider = { onDidChangeTreeData: this.outlineEmitter.event, getTreeItem: item => item,
       getChildren: parent => parent ? parent.children : this.outline() };
     this.issueProvider = { onDidChangeTreeData: this.issueEmitter.event, getTreeItem: item => item, getChildren: parent => {
@@ -48,11 +49,12 @@ class ReviewUi {
     }
     return roots;
   }
-  async refresh() {
+  async refresh(sequence) {
     if (!this.client) return;
+    if (sequence !== undefined && this.sequence === sequence) return;
     const generation = ++this.generation, view = await this.client.request('GET', '/v1/human/view');
     if (this.disposed || generation !== this.generation) return;
-    this.text = view.text; this.movementOptions = view.movementOptions; this.reviews = view.reviews; this.issues = view.issues; this.projection = undefined;
+    this.sequence = sequence; this.text = view.text; this.movementOptions = view.movementOptions; this.reviews = view.reviews; this.issues = view.issues; this.projection = undefined;
     this.outlineEmitter.fire(); this.issueEmitter.fire(); this.decorate();
   }
   changed() {
@@ -78,7 +80,7 @@ class ReviewUi {
       let reviews = [], issues = [];
       // Preview-only projection: approving still saves and checks server versions.
       try { ({ reviews, issues } = this.projected(editor.document.getText())); } catch { /* A diff budget failure must never paint stale offsets. */ }
-      const content = reviews.filter(r => r.kind !== 'move');
+      const content = reviews.filter(r => !['move', 'delete'].includes(r.kind));
       const light = reviews.filter(r => r.kind === 'move' && r.status === 'unreviewed').flatMap(move => {
         let pieces = [{ start: move.start, end: move.end }];
         for (const r of content) pieces = pieces.flatMap(piece => r.start >= piece.end || r.end <= piece.start ? [piece] :
@@ -87,12 +89,16 @@ class ReviewUi {
           ' → 当前片段 ' + ((move.movement?.targetIndex ?? 0) + 1) + '；重合度 ' + Math.round((move.movement?.similarity ?? 1) * 100) +
           '%。使用“通过位置调整”单独确认；原有内容审计状态保留。' }));
       });
+      const removed = reviews.filter(r => r.kind === 'delete').map(r => ({ range: range(r),
+        hoverMessage: 'AI 删除（' + (r.status === 'needsFix' ? '需修改' : '待审核') + '）：\n' + (r.deletedText || '').slice(0, 8000) + '\n在此位置右键通过审核或拒绝修改。',
+        renderOptions: { after: { contentText: '⟪− ' + (r.deletedText || '').replace(/\s+/g, ' ').slice(0, 100) + ((r.deletedText || '').length > 100 ? '…' : '') + ' ⟫' } } }));
+      editor.setDecorations(this.deletions, removed);
       editor.setDecorations(this.light, light);
       editor.setDecorations(this.yellow, content.filter(r => r.status === 'unreviewed').map(r => ({ range: range(r), hoverMessage: r.origin === 'initial' ? '初始正文：待审核' : r.origin === 'manual' ? '手动标记：待审核' : 'AI 修改：待审核' })));
       editor.setDecorations(this.red, reviews.filter(r => r.status === 'needsFix').map(r => ({ range: range(r), hoverMessage: '需修改' })));
       editor.setDecorations(this.issueMark, issues.filter(i => i.type === 'anchored' && i.status === 'open').map(i => ({ range: range(i.anchor), hoverMessage: i.title })));
     }
   }
-  dispose() { this.disposed = true; clearTimeout(this.timer); for (const item of [...this.trees, this.outlineEmitter, this.issueEmitter, this.light, this.yellow, this.red, this.issueMark]) item.dispose(); }
+  dispose() { this.disposed = true; clearTimeout(this.timer); for (const item of [...this.trees, this.outlineEmitter, this.issueEmitter, this.light, this.yellow, this.red, this.issueMark, this.deletions]) item.dispose(); }
 }
 module.exports = { ReviewUi };

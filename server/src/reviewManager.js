@@ -4,6 +4,7 @@ const { tokens, edits } = require('./mergeEngine');
 const { hash } = require('./files');
 const { scan } = require('./structures');
 const movement = require('./movement');
+const { compact } = require('./reviewCompaction');
 
 function changes(before, after) {
   const base = tokens(before), offsets = [0];
@@ -42,6 +43,11 @@ function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
   if (before === after) return structuredClone(reviews);
   const hunks = suppliedHunks || changes(before, after), result = [];
   for (const review of reviews) {
+    if (review.kind === 'delete') {
+      const start = position(review.start, hunks, true);
+      result.push({ ...review, start, end: start });
+      continue;
+    }
     let ranges;
     if (review.kind !== 'token') ranges = [wholeRange(review, hunks)].filter(Boolean);
     else if (actor === 'human') {
@@ -89,18 +95,24 @@ function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
         status: actor === 'ai' && touched(review, hunks) ? 'unreviewed' : review.status });
     }
   }
-  return result;
+  return compact(result);
 }
-function applyAILegacy(previous, before, after, revision, sessionId, mapped) {
-  const hunks = changes(before, after), reviews = mapped || remapLegacy(previous, before, after, 'ai', hunks), events = [];
+function applyAILegacy(previous, before, after, revision, sessionId, mapped, hunks) {
+  hunks ||= changes(before, after);
+  const reviews = mapped || remapLegacy(previous, before, after, 'ai', hunks), events = [];
   // Invert the same alignment; a second budgeted Diff could choose coarser gaps.
   const reverse = hunks.map(h => ({ start: h.newStart, end: h.newEnd, newStart: h.start, newEnd: h.end, before: h.after, after: h.before }));
   const nodes = scan(after), oldNodes = scan(before);
   for (const h of hunks) {
     const id = randomUUID();
-    events.push({ id, sessionId, revision, before: h.before, after: h.after, start: h.newStart, end: h.newEnd,
+    events.push({ id, sessionId, revision, before: h.before, after: h.after, start: h.newStart, end: h.newEnd, baseStart: h.start, baseEnd: h.end,
       type: !h.before ? 'insert' : !h.after ? 'delete' : 'replace', time: Date.now() });
-    if (h.newStart === h.newEnd) continue;
+    if (h.newStart === h.newEnd) {
+      if (h.before.trim()) reviews.push({ id: randomUUID(), eventId: id, eventIds: [id], start: h.newStart, end: h.newEnd,
+        kind: 'delete', status: 'unreviewed', text: '', deletedText: h.before, initialText: '', original: h.before,
+        rejectionMode: 'event', version: randomUUID(), contentHash: hash(''), revision });
+      continue;
+    }
     const whole = nodes.filter(n => n.type !== 'paragraph' && h.newStart <= n.start && h.newEnd >= n.end)
       .map(n => ({ start: n.start, end: n.end, kind: 'structure' }));
     const split = /\n[ \t]*\n|\\par\b/.test(h.after) && oldNodes.some(n => n.type === 'paragraph' && n.start < h.start && n.end > h.end);
@@ -116,18 +128,18 @@ function applyAILegacy(previous, before, after, revision, sessionId, mapped) {
       [{ ...r, end: Math.min(r.end, group.start) }, { ...r, start: Math.max(r.start, group.end) }].filter(r => r.end > r.start));
     for (const range of ranges.concat(residual)) {
       const { kind } = range;
-      const covering = reviews.find(r => r.kind !== 'token' && r.kind !== 'move' && r.start <= range.start && r.end >= range.end);
-      if (covering) { covering.eventIds = [...(covering.eventIds || [covering.eventId]), id]; covering.revision = revision; continue; }
+      const covering = reviews.find(r => !['token', 'move', 'delete'].includes(r.kind) && r.start <= range.start && r.end >= range.end);
+      if (covering) { covering.eventIds ||= [covering.eventId]; if (!covering.eventIds.includes(id)) covering.eventIds.push(id); covering.revision = revision; continue; }
       // Current state + current edit only. History never decides review status.
       const original = before.slice(position(range.start, reverse), position(range.end, reverse, true));
       const text = after.slice(range.start, range.end);
       if (!text.trim()) continue;
-      for (let i = reviews.length - 1; i >= 0; i--) if (range.start <= reviews[i].start && range.end >= reviews[i].end) reviews.splice(i, 1);
+      for (let i = reviews.length - 1; i >= 0; i--) if (reviews[i].kind !== 'delete' && range.start <= reviews[i].start && range.end >= reviews[i].end) reviews.splice(i, 1);
       reviews.push({ id: randomUUID(), eventId: id, eventIds: [id], start: range.start, end: range.end, kind, status: 'unreviewed',
         text, initialText: text, original, rejectionMode: split && kind === 'paragraph' ? 'event' : 'range', version: randomUUID(), contentHash: hash(text), revision });
     }
   }
-  return { reviews, events };
+  return { reviews: compact(reviews), events };
 }
 function movementAnalysis(before, after, options) {
   const analysis = movement.analyze(before, after, movement.options(options));
@@ -144,6 +156,7 @@ function fragment(review, start, end, text) {
 }
 function outside(reviews, ranges, text) {
   return reviews.flatMap(review => {
+    if (review.kind === 'delete') return [review];
     let pieces = [{ start: review.start, end: review.end }];
     for (const range of ranges) pieces = pieces.flatMap(piece => range.start >= piece.end || range.end <= piece.start ? [piece] :
       [{ start: piece.start, end: Math.min(piece.end, range.start) }, { start: Math.max(piece.start, range.end), end: piece.end }].filter(p => p.end > p.start));
@@ -163,7 +176,8 @@ function pairHunks(pair) {
   });
 }
 function remap(reviews, before, after, actor = 'human', suppliedHunks, options, suppliedAnalysis) {
-  if (before === after) return structuredClone(reviews);
+  reviews = compact(reviews);
+  if (before === after || !reviews.length) return reviews;
   const hunks = suppliedHunks || changes(before, after), analysis = suppliedAnalysis === undefined ? movementAnalysis(before, after, options) : suppliedAnalysis;
   const legacy = remapLegacy(reviews, before, after, actor, hunks);
   if (!analysis) return legacy;
@@ -195,7 +209,7 @@ function remap(reviews, before, after, actor = 'human', suppliedHunks, options, 
       }
     }
   }
-  return result;
+  return compact(result);
 }
 function movementEvent(analysis, before, after, revision, sessionId) {
   const ordered = [...analysis.pairs].sort((a, b) => a.to.index - b.to.index), original = [...ordered].sort((a, b) => a.from.index - b.from.index);
@@ -216,11 +230,24 @@ function movementEvent(analysis, before, after, revision, sessionId) {
     movement: { canReject, slots: slots.map(pair => ({ start: pair.to.start, end: pair.to.end, order: pair.from.index })), count: slots.filter(pair => pair.eligible && pair.moved).length }, time: Date.now() };
 }
 function applyAI(previous, before, after, revision, sessionId, options) {
+  previous = compact(previous);
+  const hunks = changes(before, after);
   const analysis = movementAnalysis(before, after, options);
-  const mapped = remap(previous, before, after, 'ai', undefined, options, analysis);
-  const audit = applyAILegacy(previous, before, after, revision, sessionId, structuredClone(mapped));
+  const mapped = remap(previous, before, after, 'ai', hunks, options, analysis);
+  const audit = applyAILegacy(previous, before, after, revision, sessionId, structuredClone(mapped), hunks);
   if (!analysis) return audit;
   const pairs = analysis.pairs.filter(pair => pair.eligible), targets = pairs.map(pair => pair.to);
+  // An ordinary Diff represents a move as delete + insert. Do not display or
+  // offer to restore that same text as a second independent deletion.
+  audit.reviews = audit.reviews.filter(review => {
+    if (review.kind !== 'delete') return true;
+    const event = audit.events.find(event => event.id === review.eventId);
+    if (!event) return true;
+    let ranges = [{ start: event.baseStart, end: event.baseEnd }];
+    for (const pair of pairs) ranges = ranges.flatMap(range => pair.from.start >= range.end || pair.from.end <= range.start ? [range] :
+      [{ start: range.start, end: Math.min(range.end, pair.from.start) }, { start: Math.max(range.start, pair.from.end), end: range.end }].filter(r => r.end > r.start));
+    return ranges.some(range => before.slice(range.start, range.end).trim());
+  });
   const reviews = outside(audit.reviews, targets, after);
   // Restore the current content reviews projected through the same exact pairs.
   for (const review of mapped) for (const pair of pairs) {
@@ -234,7 +261,12 @@ function applyAI(previous, before, after, revision, sessionId, options) {
       const event = { id: randomUUID(), sessionId, revision, before: h.before, after: h.after, start: h.newStart, end: h.newEnd,
         type: !h.before ? 'insert' : !h.after ? 'delete' : 'replace', time: Date.now() };
       audit.events.push(event);
-      if (!h.after.trim()) continue;
+      if (!h.after.trim()) {
+        if (h.before.trim() && h.newStart === h.newEnd) reviews.push({ id: randomUUID(), eventId: event.id, eventIds: [event.id], start: h.newStart, end: h.newEnd,
+          kind: 'delete', status: 'unreviewed', text: '', deletedText: h.before, initialText: '', original: h.before,
+          rejectionMode: 'event', version: randomUUID(), contentHash: hash(''), revision });
+        continue;
+      }
       reviews.push({ id: randomUUID(), eventId: event.id, eventIds: [event.id], start: h.newStart, end: h.newEnd, kind: 'token', status: 'unreviewed',
         text: h.after, initialText: h.after, original: h.before, version: randomUUID(), contentHash: hash(h.after), revision });
     }
@@ -244,7 +276,7 @@ function applyAI(previous, before, after, revision, sessionId, options) {
       movement: { sourceStart: pair.from.start, sourceEnd: pair.from.end, similarity: pair.score,
         sourceIndex: pair.from.index, targetIndex: pair.to.index, ambiguous: pair.orderAmbiguous, canReject: relocation.movement.canReject } });
   }
-  return { reviews, events: audit.events };
+  return { reviews: compact(reviews), events: audit.events };
 }
 function matches(review, operation) {
   return review.id === operation.reviewId && review.version === operation.version && review.contentHash === operation.contentHash;
@@ -277,4 +309,26 @@ function initialReviews(text) {
       initialText: content, original: null, version: randomUUID(), contentHash: hash(content), revision: 1 };
   }).filter(review => review.text);
 }
-module.exports = { changes, position, wholeRange, contentVersion, remap, applyAI, matches, initialReviews };
+function restoreDeletedEvents(snapshot, current, events) {
+  // The deletion offset is already recorded. Re-diffing its inverse can place
+  // repeated whitespace on either side. Verify the later edit alignment in
+  // both directions, then restore only at the exact mapped snapshot offsets.
+  const hunks = changes(snapshot, current), reverse = changes(current, snapshot).map(h => [h.newStart, h.newEnd, h.start, h.end]);
+  if (JSON.stringify(hunks.map(h => [h.start, h.end, h.newStart, h.newEnd])) !== JSON.stringify(reverse)) return { ok: false };
+  const restored = [];
+  for (const event of events) {
+    if (hunks.some(h => h.start <= event.end && event.start <= h.end)) return { ok: false };
+    const start = position(event.start, hunks, false), end = position(event.end, hunks, true);
+    if (current.slice(start, end) !== snapshot.slice(event.start, event.end)) return { ok: false };
+    restored.push({ start, end, text: event.before });
+  }
+  restored.sort((a, b) => b.start - a.start || b.end - a.end);
+  let text = current;
+  for (let i = 0; i < restored.length; i++) {
+    const part = restored[i];
+    if (i && part.end > restored[i - 1].start) return { ok: false };
+    text = text.slice(0, part.start) + part.text + text.slice(part.end);
+  }
+  return { ok: true, text };
+}
+module.exports = { changes, position, wholeRange, contentVersion, remap, applyAI, matches, initialReviews, restoreDeletedEvents };

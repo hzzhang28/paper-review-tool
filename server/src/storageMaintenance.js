@@ -100,6 +100,10 @@ function filePlan(root, state, { fresh = false, extraStates = [] } = {}) {
     for (const conflict of saved.conflicts || []) conflictIds.add(conflict.id);
   }
   for (const checkpoint of keep) {
+    // Never reclaim blobs when an old oversized checkpoint cannot be scanned
+    // cheaply. The checkpoint retention policy will retire it normally.
+    if (checkpoint.size > 8 * 1024 * 1024) return { found, remove: found.checkpoints.filter(f => !keep.includes(f)),
+      protectedBlobs: found.blobs.length, fileBytes: found.checkpoints.filter(f => !keep.includes(f)).reduce((n, f) => n + f.size, 0) };
     const saved = JSON.parse(decode(fs.readFileSync(safePath(root, checkpoint.name))));
     references(saved.state, hashes);
     for (const conflict of saved.state.conflicts || []) conflictIds.add(conflict.id);

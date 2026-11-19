@@ -63,7 +63,8 @@ class ServiceManager {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
     const worker = new this.WorkerClass(this.serviceFile('hostWorker.js'), {
       workerData: { root, file, serviceId, port: plan.port, movement: options.movement, initialReview: options.initialReview, requireExisting: options.requireExisting },
-      stdout: true, stderr: true, execArgv: [], env
+      stdout: true, stderr: true, execArgv: [], env,
+      resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 }
     });
     const record = { worker, root, serviceId, exited: false };
     this.owned = record; this.client = client;

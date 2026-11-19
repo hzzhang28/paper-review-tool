@@ -28,6 +28,10 @@ function applyReviewOperations(reviews, operations, context) {
       if (mapped && candidate && matches(candidate, mapped)) { effective = mapped; review = candidate; }
     }
     if (!review) { stale.push(operation); continue; }
+    if (review.kind === 'delete') {
+      result = result.flatMap(r => r !== review ? [r] : operation.action === 'approve' ? [] : [{ ...r, status: operation.action }]);
+      applied.push(operation); continue;
+    }
     const selected = effective.selection || { start: 0, end: review.end - review.start };
     const inspectedText = operation.inspectedText ?? review.text;
     const inspectedSelection = operation.selection || { start: 0, end: inspectedText.length };

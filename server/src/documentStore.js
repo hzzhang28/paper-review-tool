@@ -9,6 +9,7 @@ const reviewManager = require('./reviewManager');
 const { anchorAt, relocate, minimizeIssues } = require('./structures');
 const { applyReviewOperations, applyRejections } = require('./metadata');
 const storage = require('./storageMaintenance');
+const reviewCompaction = require('./reviewCompaction');
 
 class StoreError extends Error {
   constructor(message, status = 409) { super(message); this.status = status; }
@@ -33,15 +34,15 @@ class DocumentStore {
       safePath(this.root, '.paper-manager/state.db-wal');
       safePath(this.root, '.paper-manager/state.db-shm');
       this.db = new DatabaseSync(safePath(this.root, '.paper-manager/state.db'));
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-8192;
         CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS pending (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, response TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history (sequence INTEGER PRIMARY KEY, json TEXT NOT NULL);`);
       this.prepareStorageSchema();
       this.recover();
-      const row = this.db.prepare('SELECT json FROM state WHERE id=1').get();
-      if (row) this.state = JSON.parse(row.json);
+      const loaded = this.loadRecord('state');
+      if (loaded) this.state = loaded;
       else {
         if (requireExisting) throw new Error('Project is not initialized. Use Initialize / Open Project and choose its initial review status.');
         this.initialize();
@@ -49,7 +50,55 @@ class DocumentStore {
       this.ensureMetadata(this.state);
       if (this.state.masterFile !== masterFile) throw new Error('This project already manages a different file.');
       this.assertManagedFiles();
+      if (this.compactedOnLoad) {
+        this.state.sequence++;
+        this.commit(this.state, []);
+      }
     } catch (error) { this.close(); throw error; }
+  }
+
+  loadRecord(table) {
+    if (!['state', 'pending'].includes(table)) throw Error('Invalid state table.');
+    const size = this.db.prepare(`SELECT length(json) bytes FROM ${table} WHERE id=1`).get();
+    if (!size) return;
+    const prefix = table === 'pending' ? '$.state' : '$';
+    let record;
+    if (size.bytes > 8 * 1024 * 1024) {
+      // Iterate individual reviews instead of materializing the two inflated
+      // arrays, then structured-cloning hundreds of megabytes on first Push.
+      record = JSON.parse(this.db.prepare(`SELECT json_remove(json, ?, ?) json FROM ${table} WHERE id=1`)
+        .get(prefix + '.reviews', prefix + '.human.reviews').json);
+    } else record = JSON.parse(this.db.prepare(`SELECT json FROM ${table} WHERE id=1`).get().json);
+    const state = table === 'pending' ? record.state : record;
+    const before = [];
+    for (const [location, target, key] of [['.reviews', state, 'reviews'], ['.human.reviews', state.human, 'reviews']]) {
+      const collector = reviewCompaction.accumulator(), signatures = [];
+      const text = this.text(target === state ? state.master.hash : state.human.draftHash), repaired = new Map();
+      const source = target[key] || this.db.prepare(`SELECT value FROM ${table}, json_each(${table}.json, ?) WHERE ${table}.id=1`)
+        .iterate(prefix + location);
+      let count = 0;
+      for (const item of source) {
+        let review = target[key] ? item : JSON.parse(item.value);
+        signatures.push([review.id, review.version, review.status, review.contentHash]); count++;
+        if (review.kind !== 'delete' && Number.isInteger(review.start) && Number.isInteger(review.end) && review.start >= 0 && review.end >= review.start && review.end <= text.length) {
+          const range = review.start + ':' + review.end;
+          if (!repaired.has(range)) { const value = text.slice(review.start, review.end); repaired.set(range, { value, contentHash: hash(value) }); }
+          const { value, contentHash } = repaired.get(range);
+          if (value !== review.text) {
+            const version = hash('repair:' + review.id + ':' + contentHash);
+            review = { ...review, text: value, initialText: value, contentHash, version, sourceVersion: version, sourceContentHash: contentHash, original: null, rejectionMode: 'event' };
+            this.compactedOnLoad = true;
+          }
+        }
+        collector.add(review);
+      }
+      target[key] = collector.finish();
+      before.push(hash(JSON.stringify({ reviews: signatures.sort((a, b) => a[0].localeCompare(b[0])),
+        issues: (target.issues || []).map(i => [i.id, i.version, i.status, i.type, i.title, i.description]).sort((a, b) => a[0].localeCompare(b[0])) })));
+      if (target[key].length < count) this.compactedOnLoad = true;
+    }
+    if (state.human.metadataBaseHash === before[0]) state.human.metadataBaseHash = this.metadataHash(state.reviews, state.issues || []);
+    return record;
   }
 
   acquireLock() {
@@ -105,7 +154,7 @@ class DocumentStore {
   }
 
   relocateIssues(issues, before, after) {
-    if (before === after) return structuredClone(issues);
+    if (before === after || !issues.length) return structuredClone(issues);
     const hunks = reviewManager.changes(before, after);
     return relocate(issues, before, after, range => {
       if (!reviewManager.wholeRange(range, hunks)) return null;
@@ -169,8 +218,8 @@ class DocumentStore {
   }
 
   recover() {
-    const row = this.db.prepare('SELECT json FROM pending WHERE id=1').get();
-    if (row) this.finish(JSON.parse(row.json));
+    const journal = this.loadRecord('pending');
+    if (journal) this.finish(journal);
   }
   finish(journal) {
     // Validate every destination BEFORE materializing any of them.
@@ -200,6 +249,8 @@ class DocumentStore {
   }
   commit(next, files, transaction) {
     if (this.state) this.assertManagedFiles();
+    next.reviews = reviewCompaction.compact(next.reviews);
+    next.human.reviews = reviewCompaction.compact(next.human.reviews);
     const removed = storage.prune(next);
     const deep = !this.state || transaction?.response?.storageMaintenance || next.sequence % 25 === 0 ||
       next.master.revision !== this.state.master.revision || removed.sessions.length || removed.revisions.length ||
@@ -249,8 +300,12 @@ class DocumentStore {
     const state = this.state, limits = storage.policy(state.retention.policy);
     this.db.prepare("UPDATE transactions SET response='{}', expired=1 WHERE expired=0 AND createdAt < ? AND id NOT IN (SELECT id FROM transactions ORDER BY sequence DESC, rowid DESC LIMIT 20)")
       .run(compact ? Date.now() + 1 : Date.now() - 120000);
-    if (deep) {
-      const extraStates = this.db.prepare('SELECT json FROM history').all().map(row => JSON.parse(row.json));
+    // Old checkpoints can predate compaction. Retain their referenced files and
+    // defer deep GC until they age out, rather than parse them all into memory.
+    const largeHistory = this.db.prepare('SELECT 1 FROM history WHERE length(json)>8388608 LIMIT 1').get();
+    if (deep && !largeHistory) {
+      const rows = this.db.prepare('SELECT json FROM history').iterate();
+      const extraStates = (function* () { for (const row of rows) yield JSON.parse(row.json); })();
       storage.removeFiles(this.root, storage.filePlan(this.root, state, { extraStates }));
     } else {
       const checkpoints = storage.files(this.root, '.paper-manager/recovery/checkpoints').filter(f => !f.directory && /^(0|[1-9]\d*)\.json$/.test(f.base));
@@ -324,8 +379,8 @@ class DocumentStore {
     return { text: this.text(this.state.human.draftHash), version: this.state.human.version,
       mtime: this.state.human.mtime, movementOptions: this.movementOptions };
   }
-  changeEventsView() {
-    return this.state.changeEvents.map(event => event.type === 'move' && event.beforeHash && event.afterHash ?
+  changeEventsView(id) {
+    return this.state.changeEvents.filter(event => !id || event.id === id).map(event => event.type === 'move' && event.beforeHash && event.afterHash ?
       { ...event, before: this.text(event.beforeHash), after: this.text(event.afterHash) } : event);
   }
   remapReviews(reviews, before, after, actor = 'human') {
@@ -630,7 +685,7 @@ class DocumentStore {
     if (body.strategy === 'movement') return this.rejectMovements(next, files, body);
     const aiEvents = new Map(next.changeEvents.map(event => [event.id, event]));
     const eventIds = review => (review.eventIds || [review.eventId]).filter(id => aiEvents.has(id));
-    const selected = next.human.reviews.filter(review => review.start < end && review.end > start && review.kind !== 'move' && review.origin !== 'manual' && (review.origin !== 'initial' || eventIds(review).length));
+    const selected = next.human.reviews.filter(review => (review.kind === 'delete' ? review.start >= start && review.start <= end : review.start < end && review.end > start) && review.kind !== 'move' && review.origin !== 'manual' && (review.origin !== 'initial' || eventIds(review).length));
     if (selected.some(review => review.origin !== 'initial' && (review.start < start || review.end > end))) throw new StoreError('选区穿过了一处完整修改，请扩大选区后重试。');
     if (body.strategy === 'revision') {
       if (next.human.reviews.some(r => r.kind === 'move' && r.start < end && r.end > start) && (start !== 0 || end !== draft.length)) {
@@ -676,7 +731,7 @@ class DocumentStore {
         snapshots.set(event.snapshotHash, snapshot);
       }
       const from = reviewManager.position(event.start, snapshot.changes, false), to = reviewManager.position(event.end, snapshot.changes, true);
-      if (!(from === to ? start < from && from < end : from < end && to > start)) continue;
+      if (!(from === to ? start <= from && from <= end : from < end && to > start)) continue;
       if (from < start || to > end) throw new StoreError('完整撤回会影响选区外内容，请扩大选区。');
       const group = groups.get(event.snapshotHash) || { snapshot: snapshot.text, revision: event.revision, events: [] };
       group.events.push(event); groups.set(event.snapshotHash, group);
@@ -697,7 +752,7 @@ class DocumentStore {
         inverse = inverse.slice(0, event.start) + event.before + inverse.slice(event.end);
         boundary = event.start;
       }
-      const result = merge(group.snapshot, text, inverse);
+      const result = group.events.some(event => event.type === 'delete') ? reviewManager.restoreDeletedEvents(group.snapshot, text, group.events) : merge(group.snapshot, text, inverse);
       if (!result.ok) throw new StoreError('拒绝与后续编辑冲突，未修改草稿。');
       text = result.text;
       rejected.push(...group.events.map(event => ({ wholeEvent: true, eventIds: [event.id] })));
@@ -758,12 +813,12 @@ class DocumentStore {
       if (review.origin === 'initial') throw new StoreError('Initial text has no earlier version to restore. Edit it manually, mark Needs Fix, or approve it.');
       let text, result;
       const draft = this.text(next.human.draftHash);
-      if (body.rejectWholeEvent) {
+      if (body.rejectWholeEvent || review.kind === 'delete') {
         const event = next.changeEvents.find(e => e.id === review.eventId);
         if (!event?.snapshotHash) throw new StoreError('The original event snapshot is unavailable. Edit the text manually.');
         const snapshot = this.text(event.snapshotHash);
         const inverse = snapshot.slice(0, event.start) + event.before + snapshot.slice(event.end);
-        result = merge(snapshot, draft, inverse);
+        result = review.kind === 'delete' ? reviewManager.restoreDeletedEvents(snapshot, draft, [event]) : merge(snapshot, draft, inverse);
         text = result.text;
       } else {
         if (review.original === null || review.rejectionMode === 'event') throw new StoreError('This fragment requires rejection of its complete original change.');
@@ -772,13 +827,13 @@ class DocumentStore {
       }
       if (!result.ok) throw new StoreError('Rejection overlaps later edits. Preserve them and resolve manually.');
       this.saveDraft(next, files, { text, expectedDraftVersion: body.expectedDraftVersion });
-      const rejected = { reviewId: review.id, wholeEvent: !!body.rejectWholeEvent,
-        eventIds: body.rejectWholeEvent ? [review.eventId] : review.eventIds || [review.eventId] };
+      const rejected = { reviewId: review.id, wholeEvent: !!body.rejectWholeEvent || review.kind === 'delete',
+        eventIds: body.rejectWholeEvent || review.kind === 'delete' ? [review.eventId] : review.eventIds || [review.eventId] };
       next.human.rejections.push(rejected);
       next.human.reviews = applyRejections(next.human.reviews, [rejected]);
       return { ok: true, text, draftVersion: next.human.version };
     }
-    if (review.kind === 'move' && body.selection) throw new StoreError('位置调整需按完整片段确认。', 400);
+    if (['move', 'delete'].includes(review.kind) && body.selection) throw new StoreError('位置调整或删除需按完整修改确认。', 400);
     if (body.selection) {
       const s = body.selection;
       if (review.kind !== 'token' || !Number.isInteger(s.start) || !Number.isInteger(s.end) || s.start < 0 || s.end > review.text.length || s.end <= s.start) throw new StoreError('Select a valid token range or the entire paragraph.', 400);

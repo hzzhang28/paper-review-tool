@@ -53,6 +53,7 @@ function startServer({ root, file, port = 0, onShutdown, initialReview, requireE
         else if (route === 'GET /v1/reviews') result = url.searchParams.get('scope') === 'master' ? store.state.reviews : store.state.human.reviews;
         else if (route === 'GET /v1/issues') result = url.searchParams.get('scope') === 'master' ? store.state.issues : store.state.human.issues;
         else if (route === 'GET /v1/events') result = store.changeEventsView();
+        else if (/^GET \/v1\/events\/[a-f0-9-]+$/.test(route)) result = store.changeEventsView(url.pathname.split('/').at(-1))[0] || {};
         else if (route === 'GET /v1/storage') result = store.storageInfo();
         else if (/^GET \/v1\/revisions\/\d+$/.test(route)) {
           const revision = Number(url.pathname.split('/').at(-1));

@@ -20,6 +20,7 @@ const { OverleafUi } = require('./overleafUi');
 const { StorageUi } = require('./storageUi');
 const { UpdateManager } = require('./updateManager');
 const { ProjectWorkspace } = require('./projectWorkspace');
+const { Spelling } = require('./spelling');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -34,6 +35,12 @@ function activate(context) {
   submitConflictStatus.tooltip = '保存合并结果并同步 Master 与 Human Draft。';
   submitConflictStatus.command = 'paperReview.submitConflict';
   const output = vscode.window.createOutputChannel('Paper Review');
+  const spelling = vscode.languages.createDiagnosticCollection ? new Spelling(vscode, output) : undefined;
+  if (spelling) {
+    context.subscriptions.push(spelling, vscode.workspace.onDidOpenTextDocument(document => spelling.changed(document)),
+      vscode.workspace.onDidCloseTextDocument(document => spelling.closed(document)));
+    for (const document of vscode.workspace.textDocuments) spelling.changed(document);
+  }
   const workspace = new ProjectWorkspace(vscode, context.globalState);
   const updater = new UpdateManager(vscode, context, { output,
     idle: () => !operation && !transitioning && !provider.busy && !buildBusy && projectTasks === 0 });
@@ -192,7 +199,7 @@ function activate(context) {
         else if (notice.status === 'pending') vscode.window.showInformationMessage('AI 提交已进入 Pending，当前冲突处理完成后继续。');
         else vscode.window.showInformationMessage('AI 已提交到 Master r' + notice.masterRevision + '。使用 Update Only 或 Merge Update 获取最新正文。');
       }
-      if (ui) await ui.refresh();
+      if (ui) await ui.refresh(state.sequence);
     } catch (error) {
       if (client !== current || transitioning) return;
       status.text = 'Paper | 服务不可用'; status.tooltip = error.message; status.show();
@@ -631,11 +638,18 @@ function activate(context) {
     const editor = await savedEditor();
     await ui.refresh();
     const selection = editor.selection, start = draftOffset(editor.document, selection.start), end = draftOffset(editor.document, selection.end);
+    const inspectedVersion = editor.document.version, inspectedClient = client;
     // Editor context menus pass a document URI, whereas review items carry .review.
     const targetReview = item?.review;
-    let selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.start < end && r.end > start);
+    let selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.kind === 'delete' ? r.start >= start && r.start <= end : r.start < end && r.end > start);
     if (placementOnly) selected = selected.filter(r => r.kind === 'move');
-    else if (selected.some(r => r.kind !== 'move')) selected = selected.filter(r => r.kind !== 'move');
+    if (!placementOnly && action === 'approve' && selected.some(r => r.kind === 'move') && selected.some(r => r.kind !== 'move')) {
+      const choice = await vscode.window.showQuickPick([
+        { label: '通过内容修改', value: 'content' }, { label: '通过位置调整', value: 'movement' }, { label: '通过全部选中修改', value: 'all' }
+      ], { title: '通过审核', ignoreFocusOut: true });
+      if (!choice) return;
+      if (choice.value !== 'all') selected = selected.filter(r => choice.value === 'movement' ? r.kind === 'move' : r.kind !== 'move');
+    }
     if (!targetReview && ['unreviewed', 'needsFix'].includes(action)) {
       operation = true; provider.busy = true;
       try {
@@ -645,9 +659,18 @@ function activate(context) {
       } finally { provider.busy = false; operation = false; await refreshStatus(); }
       return;
     }
-    if (action === 'reject' && selected.length && selected.every(r => r.kind === 'move')) return rejectSelection('movement');
     if (action === 'reject' && !targetReview && !selection.isEmpty) return rejectSelection();
+    if (action === 'reject' && selected.some(r => r.kind === 'move')) {
+      if (selected.every(r => r.kind === 'move')) return rejectSelection('movement');
+      const choice = await vscode.window.showQuickPick([
+        { label: '拒绝内容修改', value: 'content' }, { label: '撤回位置调整', value: 'movement' }
+      ], { title: '拒绝修改', ignoreFocusOut: true });
+      if (!choice) return;
+      if (choice.value === 'movement') return rejectSelection('movement');
+      selected = selected.filter(r => r.kind !== 'move');
+    }
     if (!selected.length) throw new Error('请先选择待审核或需修改的范围。');
+    if (editor.document.version !== inspectedVersion || editor.document.isDirty || client !== inspectedClient) throw new Error('项目或正文已变化，请重新选择审核范围。');
     operation = true; provider.busy = true;
     try {
       for (const review of selected) {
@@ -849,7 +872,7 @@ function activate(context) {
   }
   const eventProvider = { provideTextDocumentContent: async resource => {
     const [id, side] = resource.path.slice(1).split('/');
-    const event = (await metadataClient(resource).request('GET', '/v1/events')).find(e => e.id === id);
+    const event = await metadataClient(resource).request('GET', '/v1/events/' + id);
     return event?.[side] || '';
   } };
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('paper-event', eventProvider));
@@ -871,11 +894,18 @@ function activate(context) {
   }
   register('paperReview.history', async () => {
     const revision = await chooseRevision(); if (!revision) return;
+    const document = await vscode.workspace.openTextDocument(metadataUri('paper-revision', `/${revision}`));
+    await vscode.window.showTextDocument(await vscode.languages.setTextDocumentLanguage(document, 'latex'), { preview: true, viewColumn: vscode.ViewColumn.One });
+  });
+  register('paperReview.historyDiff', async () => {
+    const revision = await chooseRevision(); if (!revision) return;
     const state = await client.request('GET', '/v1/state');
     await vscode.commands.executeCommand('vscode.diff', metadataUri('paper-revision', `/${revision}`),
       metadataUri('paper-revision', `/${state.masterRevision}`), `Master r${revision} → r${state.masterRevision}`);
   });
   register('paperReview.storage', () => storageUi.open());
+  register('paperReview.addSpellingWord', word => spelling?.add(typeof word === 'string' ? word : undefined));
+  register('paperReview.spellingDictionary', () => vscode.commands.executeCommand('workbench.action.openSettings', '@id:paperReview.spelling.userWords'));
   register('paperReview.restore', async () => {
     const revision = await chooseRevision(); if (!revision) return;
     const state = await client.request('GET', '/v1/state');
@@ -891,6 +921,7 @@ function activate(context) {
           modeChanged: event.affectsConfiguration('paperReview.service.portMode', vscode.Uri.file(projectRoot)) }).catch(showError);
     }
     if (event.affectsConfiguration('paperReview.storage')) void storageUi.sync().catch(showError);
+    if (event.affectsConfiguration('paperReview.spelling')) spelling?.reset();
     if (event.affectsConfiguration('paperReview.overleaf.enabled')) void overleaf.refresh();
     updateTargetButtons();
     void settingsUi.changed(event).then(() => { updateTargetButtons(); if (!buildBusy) compileButton(); }).catch(showError);
@@ -910,7 +941,7 @@ function activate(context) {
   context.subscriptions.push(provider, issueFs, output, status, conflictStatus, submitConflictStatus, buildOutput, buildStatus, buildLogStatus, pdfStatus, codexStatus, instructionStatus, chatStatus,
     vscode.workspace.registerFileSystemProvider('paper', provider, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('paper-issue', issueFs, { isCaseSensitive: true }),
-    vscode.workspace.onDidChangeTextDocument(event => { if (event.document.uri.scheme === 'paper') { ui?.changed(); void refreshStatus(); } }),
+    vscode.workspace.onDidChangeTextDocument(event => { spelling?.changed(event.document); if (event.document.uri.scheme === 'paper') { ui?.changed(); void refreshStatus(); } }),
     vscode.window.onDidChangeVisibleTextEditors(editors => {
       ui?.decorate();
       const restored = editors.find(editor => editor.document.uri.scheme === 'paper');

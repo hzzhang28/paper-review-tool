@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -36,6 +36,33 @@
     ],
     "commands": [
       {
+        "command": "paperReview.state",
+        "title": "Paper: 查看项目状态"
+      },
+      {
+        "command": "paperReview.history",
+        "title": "Paper: 查看历史版本"
+      },
+      {
+        "command": "paperReview.historyDiff",
+        "title": "Paper: 查看版本差异…"
+      },
+      {
+        "command": "paperReview.closeProject",
+        "title": "Paper: 关闭项目",
+        "icon": "$(close)"
+      },
+      {
+        "command": "paperReview.checkForUpdates",
+        "title": "Paper: 检查更新",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "paperReview.settings",
+        "title": "Paper: 打开设置",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "paperReview.open",
         "title": "Paper: 打开 Human Draft"
       },
@@ -43,11 +70,6 @@
         "command": "paperReview.openProject",
         "title": "Paper: 初始化 / 打开项目",
         "icon": "$(folder-opened)"
-      },
-      {
-        "command": "paperReview.closeProject",
-        "title": "Paper: 关闭项目",
-        "icon": "$(close)"
       },
       {
         "command": "paperReview.copyCliPath",
@@ -90,10 +112,6 @@
         "icon": "$(output)"
       },
       {
-        "command": "paperReview.state",
-        "title": "Paper: 查看项目状态"
-      },
-      {
         "command": "paperReview.refresh",
         "title": "Paper: 刷新章节与 Issues",
         "icon": "$(refresh)"
@@ -116,7 +134,7 @@
       },
       {
         "command": "paperReview.reject",
-        "title": "Paper: 拒绝修改"
+        "title": "Paper: 拒绝修改…"
       },
       {
         "command": "paperReview.rejectSelection",
@@ -164,14 +182,6 @@
       {
         "command": "paperReview.snapshot",
         "title": "Paper: 保存 Git 阶段版本"
-      },
-      {
-        "command": "paperReview.events",
-        "title": "Paper: 查看 AI 修改历史"
-      },
-      {
-        "command": "paperReview.history",
-        "title": "Paper: 查看 Master 修订历史"
       },
       {
         "command": "paperReview.restore",
@@ -264,14 +274,12 @@
         "icon": "$(database)"
       },
       {
-        "command": "paperReview.checkForUpdates",
-        "title": "Paper: 检查更新",
-        "icon": "$(cloud-download)"
+        "command": "paperReview.addSpellingWord",
+        "title": "Paper: 加入个人字库"
       },
       {
-        "command": "paperReview.settings",
-        "title": "Paper: 打开设置",
-        "icon": "$(settings-gear)"
+        "command": "paperReview.spellingDictionary",
+        "title": "Paper: 编辑个人字库"
       }
     ],
     "menus": {
@@ -394,24 +402,14 @@
           "group": "paperReview@3"
         },
         {
-          "command": "paperReview.rejectSelection",
-          "when": "resourceScheme == paper && editorHasSelection",
-          "group": "paperReview@3.1"
-        },
-        {
           "command": "paperReview.createIssue",
           "when": "resourceScheme == paper",
           "group": "paperReview@4"
         },
         {
-          "command": "paperReview.approveMovement",
+          "command": "paperReview.addSpellingWord",
           "when": "resourceScheme == paper",
-          "group": "paperReview@3.2"
-        },
-        {
-          "command": "paperReview.rejectMovement",
-          "when": "resourceScheme == paper",
-          "group": "paperReview@3.3"
+          "group": "paperSpelling@1"
         }
       ],
       "view/title": [
@@ -488,22 +486,17 @@
         {
           "command": "paperReview.state",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
-          "group": "4_project@0"
-        },
-        {
-          "command": "paperReview.events",
-          "when": "paperReview.projectOpen && view == paperReview.reviews",
-          "group": "4_project@1"
+          "group": "0_versions@0"
         },
         {
           "command": "paperReview.history",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
-          "group": "4_project@2"
+          "group": "0_versions@1"
         },
         {
           "command": "paperReview.closeProject",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
-          "group": "4_project@3"
+          "group": "0_versions@3"
         },
         {
           "command": "paperReview.resolveConflict",
@@ -538,12 +531,22 @@
         {
           "command": "paperReview.checkForUpdates",
           "when": "view == paperReview.reviews",
-          "group": "4_project@5"
+          "group": "0_versions@4"
         },
         {
           "command": "paperReview.settings",
           "when": "view == paperReview.reviews",
-          "group": "4_project@6"
+          "group": "0_versions@5"
+        },
+        {
+          "command": "paperReview.historyDiff",
+          "when": "paperReview.projectOpen && view == paperReview.reviews",
+          "group": "0_versions@2"
+        },
+        {
+          "command": "paperReview.spellingDictionary",
+          "when": "view == paperReview.reviews",
+          "group": "6_spelling@1"
         }
       ],
       "explorer/context": [
@@ -593,6 +596,18 @@
       "commandPalette": [
         {
           "command": "paperReview.copyCliPath",
+          "when": "false"
+        },
+        {
+          "command": "paperReview.rejectSelection",
+          "when": "false"
+        },
+        {
+          "command": "paperReview.approveMovement",
+          "when": "false"
+        },
+        {
+          "command": "paperReview.rejectMovement",
           "when": "false"
         }
       ]
@@ -1416,11 +1431,32 @@
           "scope": "resource",
           "order": 64,
           "description": "标点之间的片段两边均需达到的最少词数，才进入移动识别。重复、多候选、过长或不完整的公式范围保持原审计逻辑。修改后下次服务启动生效。"
+        },
+        "paperReview.spelling.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "order": 70,
+          "description": "在 Human Draft 中离线检查英文拼写；跳过公式、命令、引用和注释。不影响正文、审计或编译。"
+        },
+        "paperReview.spelling.userWords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z]+(?:['’][A-Za-z]+)*$",
+            "maxLength": 80
+          },
+          "uniqueItems": true,
+          "maxItems": 20000,
+          "default": [],
+          "scope": "application",
+          "order": 71,
+          "description": "用户级个人英文字库，所有论文项目共用；可通过拼写快速修复加入。"
         }
       }
     }
   },
-  "paperReviewBuild": "0.4.6r1",
+  "paperReviewBuild": "0.4.7t1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"
