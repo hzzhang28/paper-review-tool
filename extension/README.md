@@ -85,7 +85,11 @@ Paper 主菜单的 **查看历史版本** 仅打开所选版本的只读正文�
 
 ## 拼写检查
 
-Human Draft 内置离线英文拼写检查，跳过公式、命令名、引用键、注释等非正文区域。使用拼写快速修复选择替换词或 **加入个人字库**。字库保存在用户级设置 `paperReview.spelling.userWords`，所有项目共用；可通过 **编辑个人字库** 调整。用 `paperReview.spelling.enabled` 开关检查。
+Human Draft 内置离线英文拼写检查。按 LaTeX 参数区分可见与不可见内容：标题、强调文字、图注、脚注、链接显示文字、表格单元格和引用前后说明继续检查；标签、引用键、路径、颜色、列格式、尺寸、宏定义、代码和注释不检查。公式整块跳过，包括其中的 `\text{…}`；支持常用数学环境及简单自定义别名。
+
+简单自定义命令会识别哪些参数用于正文；未识别命令的参数、复杂宏和不能确定的条件分支保守跳过。不执行 TeX 或宏展开。
+
+使用拼写快速修复选择替换词或 **加入个人字库**。字库保存在用户级设置 `paperReview.spelling.userWords`，所有项目共用；可通过 **编辑个人字库** 调整。用 `paperReview.spelling.enabled` 开关检查。
 
 基于 [nspell](https://github.com/wooorm/nspell) 和 [dictionary-en](https://github.com/wooorm/dictionaries/tree/main/dictionaries/en)；不上传正文。词典按需加载到独立 Worker，输入停止后检查；单次最多显示 1000 处提示，超过 2 MiB 的正文跳过自动检查。当前仅支持英文，不做语法检查。
 
