@@ -21,6 +21,7 @@ function fail(error) {
 try {
   const { runtimeCapabilities } = require('./runtimeCapabilities');
   const runtime = { ...runtimeCapabilities(), threadId };
+  require('./emergencyReset').resume(workerData.root, workerData.file, workerData.serviceId);
   const { startServer } = require('./server');
   app = startServer({ ...workerData, runtime, onShutdown: () => { void stop().catch(fail); },
     onReady: details => parentPort.postMessage({ type: 'ready', ...details, runtime }) });

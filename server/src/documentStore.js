@@ -27,10 +27,12 @@ class DocumentStore {
     this.masterFile = masterFile;
     this.masterPath = safePath(this.root, masterFile);
     this.privatePath = safePath(this.root, '.paper-manager');
+    require('./emergencyReset').assertResetAllowed(this.root, serviceId);
     fs.mkdirSync(this.privatePath, { recursive: true, mode: 0o700 });
     this.lockPath = safePath(this.root, '.paper-manager/service.lock');
     this.acquireLock();
     try {
+      require('./emergencyReset').assertResetAllowed(this.root, serviceId);
       safePath(this.root, '.paper-manager/state.db-wal');
       safePath(this.root, '.paper-manager/state.db-shm');
       this.db = new DatabaseSync(safePath(this.root, '.paper-manager/state.db'));

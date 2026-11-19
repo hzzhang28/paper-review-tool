@@ -280,6 +280,10 @@
       {
         "command": "paperReview.spellingDictionary",
         "title": "Paper: 编辑个人字库"
+      },
+      {
+        "command": "paperReview.emergencyReset",
+        "title": "Paper: 紧急重置（以当前编辑器为准）…"
       }
     ],
     "menus": {
@@ -378,6 +382,11 @@
           "command": "paperReview.overleafLog",
           "when": "resourceScheme == paper && paperReview.overleafEnabled",
           "group": "5_overleaf@2"
+        },
+        {
+          "command": "paperReview.emergencyReset",
+          "when": "resourceScheme == paper",
+          "group": "4_project@9"
         }
       ],
       "editor/context": [
@@ -531,12 +540,12 @@
         {
           "command": "paperReview.checkForUpdates",
           "when": "view == paperReview.reviews",
-          "group": "0_versions@4"
+          "group": "0_versions@5"
         },
         {
           "command": "paperReview.settings",
           "when": "view == paperReview.reviews",
-          "group": "0_versions@5"
+          "group": "0_versions@6"
         },
         {
           "command": "paperReview.historyDiff",
@@ -547,6 +556,11 @@
           "command": "paperReview.spellingDictionary",
           "when": "view == paperReview.reviews",
           "group": "6_spelling@1"
+        },
+        {
+          "command": "paperReview.emergencyReset",
+          "when": "view == paperReview.reviews",
+          "group": "0_versions@4"
         }
       ],
       "explorer/context": [
@@ -608,6 +622,10 @@
         },
         {
           "command": "paperReview.rejectMovement",
+          "when": "false"
+        },
+        {
+          "command": "paperReview.emergencyReset",
           "when": "false"
         }
       ]
@@ -1456,7 +1474,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.7t1",
+  "paperReviewBuild": "0.4.7r2",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

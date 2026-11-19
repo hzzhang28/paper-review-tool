@@ -13,13 +13,14 @@ class ServiceManager {
   }
   get child() { return this.owned?.worker; } // Compatibility for project lifecycle checks.
   async ensure(root, file, options = {}) {
+    if (this.resetting) throw Error('项目正在紧急重置。');
     if (this.stopping) await this.stopping;
     if (this.starting) {
       if (this.startingProject !== root + '\0' + file) throw Error('Another project is starting.');
       return this.starting;
     }
     this.startingProject = root + '\0' + file;
-    this.starting = this.connectOrStart(root, file, options);
+    this.starting = this.connectOrStart(root, file, options, this.generation || 0);
     try { return await this.starting; } finally { this.starting = undefined; }
   }
   serviceFile(name) {
@@ -31,7 +32,8 @@ class ServiceManager {
     const { safePath } = require(this.serviceFile('files.js'));
     for (const [relative, owns] of [
       ['.paper-manager/connection.json', value => value.serviceId === record.serviceId],
-      ['.paper-manager/service.lock', value => value.token === record.serviceId]
+      ['.paper-manager/service.lock', value => value.token === record.serviceId],
+      ['.paper-reset.lock', value => value.token === record.serviceId]
     ]) {
       try {
         const target = safePath(record.root, relative);
@@ -39,11 +41,12 @@ class ServiceManager {
       } catch (error) { this.output?.appendLine('Service cleanup: ' + error.message); }
     }
   }
-  async connectOrStart(root, file, options) {
+  async connectOrStart(root, file, options, generation) {
     const client = new ApiClient(root);
     if (this.owned && !this.owned.exited) {
       if (this.owned.root !== root) throw Error('请先关闭当前项目。');
       const state = await client.request('GET', '/v1/state');
+      if (this.resetting || generation !== (this.generation || 0)) throw Error('项目已进入紧急重置。');
       if (state.masterFile !== file) throw Error('This directory already manages a different .tex file.');
       return client;
     }
@@ -59,6 +62,7 @@ class ServiceManager {
     }
     const plan = this.ports ? await this.ports.prepare(root, options.portPolicy) : { port: options.port ?? 0 };
     if (!this.ports) await checkPort(plan.port);
+    if (this.resetting || generation !== (this.generation || 0)) throw Error('项目已进入紧急重置。');
     const serviceId = randomUUID();
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
     const worker = new this.WorkerClass(this.serviceFile('hostWorker.js'), {
@@ -110,7 +114,25 @@ class ServiceManager {
     this.stopping = this.stopOwned();
     try { await this.stopping; } finally { this.stopping = undefined; }
   }
+  async forceStop(root) {
+    const same = (a, b) => process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
+    if (this.owned && !same(this.owned.root, root) || this.startingProject && this.starting && !same(this.startingProject.split('\0')[0], root)) throw Error('紧急重置只能处理当前窗口所属项目。');
+    this.resetting = true; this.generation = (this.generation || 0) + 1; this.client?.dispose();
+    const record = this.owned;
+    if (record && !record.exited) {
+      record.expectedStop = true;
+      // Do not queue a shutdown behind a stuck Diff/SQLite transaction.
+      await record.worker.terminate(); await record.exit;
+    }
+    const { assertStopped } = require(this.serviceFile('emergencyReset.js'));
+    assertStopped(root);
+  }
   async stopOwned() {
+    if (this.resetting) {
+      const record = this.owned;
+      if (record && !record.exited) { record.expectedStop = true; await record.worker.terminate(); await record.exit; }
+      return;
+    }
     if (this.starting) await this.starting.catch(() => {});
     const record = this.owned;
     if (!record || record.exited) return;

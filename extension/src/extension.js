@@ -21,6 +21,7 @@ const { StorageUi } = require('./storageUi');
 const { UpdateManager } = require('./updateManager');
 const { ProjectWorkspace } = require('./projectWorkspace');
 const { Spelling } = require('./spelling');
+const { recover } = require('./emergencyRecovery');
 let activeManager, activeCompiler;
 
 function activate(context) {
@@ -151,7 +152,7 @@ function activate(context) {
     return vscode.window.showErrorMessage(`Paper: ${error.message}`);
   };
   const register = (name, callback) => context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
-    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates', 'settings'].includes(name.split('.').at(-1));
+    const protectedCommand = !['openProject', 'closeProject', 'open', 'refresh', 'state', 'copyCliPath', 'checkForUpdates', 'settings', 'emergencyReset'].includes(name.split('.').at(-1));
     let entered = false;
     try {
       if (protectedCommand) {
@@ -303,6 +304,21 @@ function activate(context) {
     } finally { transitioning = false; await refreshStatus(); }
   }
   register('paperReview.openProject', openProject);
+  let recovering = false;
+  register('paperReview.emergencyReset', async () => {
+    if (recovering) throw Error('紧急重置正在进行，请等待完成。');
+    recovering = true;
+    try {
+      await recover({ vscode, manager, remembered: context.workspaceState.get('activeProject'),
+        begin: () => { transitioning = true; provider.busy = true; },
+        invalidate: async () => { client?.dispose?.(); client = undefined; provider.disconnect(); await compiler.cancel(); },
+        beforeReload: async (project, document) => {
+          await context.workspaceState.update('activeProject', { ...project, authority: document.uri.scheme === 'paper' ? document.uri.authority : projectId(project.root, project.file) });
+        },
+        notify: message => { void vscode.window.showInformationMessage(message); }
+      });
+    } finally { recovering = false; }
+  });
   register('paperReview.checkForUpdates', () => updater.check({ manual: true }));
   register('paperReview.settings', () => vscode.commands.executeCommand('workbench.action.openGlobalSettings', { query: '@ext:local-paper-tools.paper-review-tool' }));
   register('paperReview.closeProject', async () => {
