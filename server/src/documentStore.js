@@ -804,6 +804,7 @@ class DocumentStore {
   }
   reviewAction(next, files, body) {
     this.expectDraft(next, body.expectedDraftVersion);
+    if (body.action === 'approveMany') return this.approveReviews(next, body);
     if (body.action === 'rejectMany') return this.rejectSelection(next, files, body);
     if (body.range) return this.markSelection(next, body);
     const review = next.human.reviews.find(r => r.id === body.reviewId);
@@ -835,6 +836,12 @@ class DocumentStore {
       next.human.reviews = applyRejections(next.human.reviews, [rejected]);
       return { ok: true, text, draftVersion: next.human.version };
     }
+    const operation = this.reviewOperation(review, body);
+    next.human.reviewOps.push(operation);
+    next.human.reviews = applyReviewOperations(next.human.reviews, [operation]).reviews;
+    return { ok: true, draftVersion: next.human.version };
+  }
+  reviewOperation(review, body) {
     if (['move', 'delete'].includes(review.kind) && body.selection) throw new StoreError('位置调整或删除需按完整修改确认。', 400);
     if (body.selection) {
       const s = body.selection;
@@ -843,11 +850,34 @@ class DocumentStore {
       for (const token of require('./mergeEngine').tokens(review.text)) boundaries.add(offset += token.length);
       if (!boundaries.has(s.start) || !boundaries.has(s.end)) throw new StoreError('Review selection must follow token boundaries.', 400);
     }
-    const operation = { reviewId: review.id, version: review.version, contentHash: review.contentHash,
+    return { reviewId: review.id, version: review.version, contentHash: review.contentHash,
       sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action, selection: body.selection };
-    next.human.reviewOps.push(operation);
-    next.human.reviews = applyReviewOperations(next.human.reviews, [operation]).reviews;
-    return { ok: true, draftVersion: next.human.version };
+  }
+  approveReviews(next, body) {
+    if (!Array.isArray(body.reviews) || !body.reviews.length) throw new StoreError('请选择要通过审核的范围。', 400);
+    const current = new Map(), ambiguous = new Set(), operations = new Map();
+    for (const review of next.human.reviews) {
+      if (current.has(review.id)) ambiguous.add(review.id);
+      current.set(review.id, review);
+    }
+    // Validate the whole inspection before mutating any metadata. One stale
+    // item rejects the entire transaction, rather than partially approving it.
+    for (const inspected of body.reviews) {
+      const review = inspected && current.get(inspected.reviewId);
+      if (!review || !reviewManager.matches(review, inspected)) throw new StoreError('Review no longer matches the inspected Draft.');
+      if (ambiguous.has(review.id)) throw new StoreError('审计身份重复，请刷新并检查范围后重试。');
+      if (operations.has(review.id)) throw new StoreError('同一个审计范围不能重复提交。', 400);
+      operations.set(review.id, this.reviewOperation(review, { action: 'approve', selection: inspected.selection }));
+    }
+    next.human.reviews = next.human.reviews.flatMap(review => {
+      const operation = operations.get(review.id);
+      if (!operation) return [review];
+      // Full approvals need no per-item clone/filter of the remaining overlay.
+      if (!operation.selection) return [];
+      return applyReviewOperations([review], [operation]).reviews;
+    });
+    next.human.reviewOps = next.human.reviewOps.concat([...operations.values()]);
+    return { ok: true, approved: operations.size, draftVersion: next.human.version };
   }
 
   editIssue(next, files, body) {

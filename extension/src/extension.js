@@ -689,6 +689,15 @@ function activate(context) {
     if (editor.document.version !== inspectedVersion || editor.document.isDirty || client !== inspectedClient) throw new Error('项目或正文已变化，请重新选择审核范围。');
     operation = true; provider.busy = true;
     try {
+      if (action === 'approve' && selected.length > 1) {
+        const reviews = selected.map(review => {
+          const partial = !targetReview && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
+          return { reviewId: review.id, version: review.version, contentHash: review.contentHash,
+            selection: partial ? { start: Math.max(start, review.start) - review.start, end: Math.min(end, review.end) - review.start } : undefined };
+        });
+        await client.request('POST', '/v1/reviews', { action: 'approveMany', reviews, expectedDraftVersion: provider.version });
+        return;
+      }
       for (const review of selected) {
         const partial = !targetReview && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
         if (partial && action === 'reject') throw new Error('无法单独撤回所选片段，请拒绝整处高亮修改或手动编辑。');
