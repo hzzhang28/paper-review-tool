@@ -653,19 +653,13 @@ function activate(context) {
     if (operation) throw new Error('正在处理项目操作，请稍后重试。');
     const editor = await savedEditor();
     await ui.refresh();
+    if (editor.document.getText().replace(/\r\n/g, '\n') !== ui.text || provider.version !== ui.version) throw new Error('项目或正文已变化，请重新选择审核范围。');
     const selection = editor.selection, start = draftOffset(editor.document, selection.start), end = draftOffset(editor.document, selection.end);
     const inspectedVersion = editor.document.version, inspectedClient = client;
     // Editor context menus pass a document URI, whereas review items carry .review.
-    const targetReview = item?.review;
+    const targetReview = action === 'approve' && !selection.isEmpty ? undefined : item?.review;
     let selected = targetReview ? [targetReview] : ui.reviews.filter(r => selection.isEmpty ? r.start <= start && r.end >= start : r.kind === 'delete' ? r.start >= start && r.start <= end : r.start < end && r.end > start);
     if (placementOnly) selected = selected.filter(r => r.kind === 'move');
-    if (!placementOnly && action === 'approve' && selected.some(r => r.kind === 'move') && selected.some(r => r.kind !== 'move')) {
-      const choice = await vscode.window.showQuickPick([
-        { label: '通过内容修改', value: 'content' }, { label: '通过位置调整', value: 'movement' }, { label: '通过全部选中修改', value: 'all' }
-      ], { title: '通过审核', ignoreFocusOut: true });
-      if (!choice) return;
-      if (choice.value !== 'all') selected = selected.filter(r => choice.value === 'movement' ? r.kind === 'move' : r.kind !== 'move');
-    }
     if (!targetReview && ['unreviewed', 'needsFix'].includes(action)) {
       operation = true; provider.busy = true;
       try {
@@ -689,9 +683,9 @@ function activate(context) {
     if (editor.document.version !== inspectedVersion || editor.document.isDirty || client !== inspectedClient) throw new Error('项目或正文已变化，请重新选择审核范围。');
     operation = true; provider.busy = true;
     try {
-      if (action === 'approve' && selected.length > 1) {
+      if (action === 'approve') {
         const reviews = selected.map(review => {
-          const partial = !targetReview && !selection.isEmpty && review.kind === 'token' && (start > review.start || end < review.end);
+          const partial = !selection.isEmpty && review.kind !== 'delete' && (start > review.start || end < review.end);
           return { reviewId: review.id, version: review.version, contentHash: review.contentHash,
             selection: partial ? { start: Math.max(start, review.start) - review.start, end: Math.min(end, review.end) - review.start } : undefined };
         });

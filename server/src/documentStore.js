@@ -842,13 +842,20 @@ class DocumentStore {
     return { ok: true, draftVersion: next.human.version };
   }
   reviewOperation(review, body) {
-    if (['move', 'delete'].includes(review.kind) && body.selection) throw new StoreError('位置调整或删除需按完整修改确认。', 400);
+    if ((review.kind === 'delete' || review.kind === 'move' && body.action !== 'approve') && body.selection) throw new StoreError('位置调整或删除需按完整修改确认。', 400);
     if (body.selection) {
       const s = body.selection;
-      if (review.kind !== 'token' || !Number.isInteger(s.start) || !Number.isInteger(s.end) || s.start < 0 || s.end > review.text.length || s.end <= s.start) throw new StoreError('Select a valid token range or the entire paragraph.', 400);
-      const boundaries = new Set([0]); let offset = 0;
-      for (const token of require('./mergeEngine').tokens(review.text)) boundaries.add(offset += token.length);
-      if (!boundaries.has(s.start) || !boundaries.has(s.end)) throw new StoreError('Review selection must follow token boundaries.', 400);
+      if (body.action !== 'approve' && review.kind !== 'token' || !Number.isInteger(s.start) || !Number.isInteger(s.end) || s.start < 0 || s.end > review.text.length || s.end <= s.start) throw new StoreError('Select a valid review range.', 400);
+      // Approvals honor the actual UTF-16 selection, including part of a word,
+      // paragraph, structure or movement. Never split an astral character.
+      if (body.action === 'approve') {
+        const splitsPair = offset => offset > 0 && offset < review.text.length && /[\uD800-\uDBFF]/.test(review.text[offset - 1]) && /[\uDC00-\uDFFF]/.test(review.text[offset]);
+        if (splitsPair(s.start) || splitsPair(s.end)) throw new StoreError('Review selection splits a Unicode character.', 400);
+      } else {
+        const boundaries = new Set([0]); let offset = 0;
+        for (const token of require('./mergeEngine').tokens(review.text)) boundaries.add(offset += token.length);
+        if (!boundaries.has(s.start) || !boundaries.has(s.end)) throw new StoreError('Review selection must follow token boundaries.', 400);
+      }
     }
     return { reviewId: review.id, version: review.version, contentHash: review.contentHash,
       sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action, selection: body.selection };

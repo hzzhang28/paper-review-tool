@@ -54,7 +54,7 @@ class ReviewUi {
     if (sequence !== undefined && this.sequence === sequence) return;
     const generation = ++this.generation, view = await this.client.request('GET', '/v1/human/view');
     if (this.disposed || generation !== this.generation) return;
-    this.sequence = sequence; this.text = view.text; this.movementOptions = view.movementOptions; this.reviews = view.reviews; this.issues = view.issues; this.projection = undefined;
+    this.sequence = sequence; this.version = view.version; this.text = view.text; this.movementOptions = view.movementOptions; this.reviews = view.reviews; this.issues = view.issues; this.projection = undefined;
     this.outlineEmitter.fire(); this.issueEmitter.fire(); this.decorate();
   }
   changed() {
@@ -87,7 +87,7 @@ class ReviewUi {
           [{ start: piece.start, end: Math.min(piece.end, r.start) }, { start: Math.max(piece.start, r.end), end: piece.end }].filter(p => p.end > p.start));
         return pieces.map(piece => ({ range: range(piece), hoverMessage: '位置调整：待确认。原片段 ' + ((move.movement?.sourceIndex ?? 0) + 1) +
           ' → 当前片段 ' + ((move.movement?.targetIndex ?? 0) + 1) + '；重合度 ' + Math.round((move.movement?.similarity ?? 1) * 100) +
-          '%。使用“通过位置调整”单独确认；原有内容审计状态保留。' }));
+          '%。使用“通过审核”确认选中范围内的内容与位置标记；未选中的部分保留。' }));
       });
       const removed = reviews.filter(r => r.kind === 'delete').map(r => ({ range: range(r),
         hoverMessage: 'AI 删除（' + (r.status === 'needsFix' ? '需修改' : '待审核') + '）：\n' + (r.deletedText || '').slice(0, 8000) + '\n在此位置右键通过审核或拒绝修改。',
