@@ -2,11 +2,13 @@
 const vscode = require('vscode');
 const { remap, changes, wholeRange, position } = require('../runtime/server/src/reviewManager');
 const { relocate, headings } = require('../runtime/server/src/structures');
+const budget = require('../runtime/server/src/reviewBudget');
 
 class ReviewUi {
   constructor(uri, client) {
     this.uri = uri; this.client = client; this.text = '';
     this.reviews = []; this.issues = []; this.generation = 0;
+    this.summaryNotices = new Set();
     this.outlineEmitter = new vscode.EventEmitter(); this.issueEmitter = new vscode.EventEmitter();
     this.light = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(230, 185, 35, 0.09)', borderWidth: '0 0 1px 0', borderStyle: 'dashed', borderColor: '#d4bd72', overviewRulerColor: '#e6d69c', overviewRulerLane: vscode.OverviewRulerLane.Right });
     this.yellow = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(230, 185, 35, 0.25)', overviewRulerColor: '#d6af22', overviewRulerLane: vscode.OverviewRulerLane.Right });
@@ -61,11 +63,24 @@ class ReviewUi {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => { if (!this.disposed) { this.outlineEmitter.fire(); this.decorate(); } }, 100);
   }
+  notifySummary(key, silent = false) {
+    if (this.summaryNotices.has(key)) return;
+    this.summaryNotices.add(key);
+    if (this.summaryNotices.size > 64) this.summaryNotices.delete(this.summaryNotices.values().next().value);
+    if (!silent) vscode.window.showInformationMessage(budget.message);
+  }
   projected(text) {
     if (this.projection?.text === text && this.projection.base === this.text) return this.projection;
     let reviews = this.reviews, issues = this.issues;
     if (text !== this.text) {
+      if (!reviews.length && !issues.length) return this.projection = { text, base: this.text, reviews, issues };
+      const summary = () => this.projection = { text, base: this.text, issues: [], reviews: reviews.length ? [{ kind: 'coarse', coarse: 'preview', start: 0, end: text.length, status: 'unreviewed' }] : [] };
+      // Unsaved preview only: commands still save and inspect authoritative
+      // ranges. Do not diff or relocate thousands of deletion ghosts per key.
+      const displayReason = budget.displayReason(reviews);
+      if (displayReason && displayReason !== 'coarse' || budget.inputReason(this.text, text)) return summary();
       const hunks = changes(this.text, text);
+      if (budget.hunkReason(hunks)) return summary();
       reviews = remap(this.reviews, this.text, text, 'human', hunks, this.movementOptions);
       issues = relocate(this.issues, this.text, text, range => wholeRange(range, hunks) ?
         { start: position(range.start, hunks, true), end: position(range.end, hunks, false) } : null);
@@ -80,6 +95,31 @@ class ReviewUi {
       let reviews = [], issues = [];
       // Preview-only projection: approving still saves and checks server versions.
       try { ({ reviews, issues } = this.projected(editor.document.getText())); } catch { /* A diff budget failure must never paint stale offsets. */ }
+      const summary = budget.displayReason(reviews);
+      if (summary) {
+        const coarse = reviews.find(r => r.coarse);
+        this.notifySummary(coarse && coarse.coarse !== 'preview' ? 'ai:' + coarse.revision : 'display:' + summary);
+        // A fixed number of decorations and no deleted text in hovers/ghosts.
+        // Coarse approval fragments retain their exact visible boundaries.
+        const ranges = status => {
+          const selected = reviews.filter(r => r.status === status && r.kind !== 'delete');
+          if (selected.length > budget.limits.decorations) return [{ start: 0, end: editor.document.getText().length }];
+          return selected.sort((a, b) => a.start - b.start).reduce((result, value) => {
+            const last = result.at(-1);
+            if (last && value.start <= last.end) last.end = Math.max(last.end, value.end);
+            else result.push({ start: value.start, end: value.end });
+            return result;
+          }, []);
+        };
+        const yellow = summary === 'coarse' ? ranges('unreviewed') : [{ start: 0, end: editor.document.getText().length }];
+        if (!yellow.length && reviews.some(r => r.kind === 'delete')) yellow.push({ start: 0, end: 0 });
+        editor.setDecorations(this.deletions, []); editor.setDecorations(this.light, []);
+        editor.setDecorations(this.yellow, yellow.map(value => ({ range: range(value), hoverMessage: budget.message,
+          ...(value.start === value.end ? { renderOptions: { after: { contentText: '⟪大量内容已删除：待审核⟫', color: new vscode.ThemeColor('editorWarning.foreground') } } } : {}) })));
+        editor.setDecorations(this.red, ranges('needsFix').map(value => ({ range: range(value), hoverMessage: '需修改' })));
+        editor.setDecorations(this.issueMark, issues.filter(i => i.type === 'anchored' && i.status === 'open').map(i => ({ range: range(i.anchor), hoverMessage: i.title })));
+        continue;
+      }
       const content = reviews.filter(r => !['move', 'delete'].includes(r.kind));
       const light = reviews.filter(r => r.kind === 'move' && r.status === 'unreviewed').flatMap(move => {
         let pieces = [{ start: move.start, end: move.end }];

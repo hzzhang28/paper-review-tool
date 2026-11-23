@@ -4,7 +4,8 @@ const { tokens, edits } = require('./mergeEngine');
 const { hash } = require('./files');
 const { scan } = require('./structures');
 const movement = require('./movement');
-const { compact } = require('./reviewCompaction');
+const { compact, accumulator } = require('./reviewCompaction');
+const budget = require('./reviewBudget');
 
 function changes(before, after) {
   const base = tokens(before), offsets = [0];
@@ -41,11 +42,11 @@ function contentVersion(sourceVersion, sourceContentHash, contentHash) {
 }
 function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
   if (before === after) return structuredClone(reviews);
-  const hunks = suppliedHunks || changes(before, after), result = [];
+  const hunks = suppliedHunks || changes(before, after), result = accumulator(), values = new Map();
   for (const review of reviews) {
     if (review.kind === 'delete') {
       const start = position(review.start, hunks, true);
-      result.push({ ...review, start, end: start });
+      result.add({ ...review, start, end: start });
       continue;
     }
     let ranges;
@@ -76,10 +77,11 @@ function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
       ranges = segments.map(r => ({ start: position(r.start, hunks, true), end: position(r.end, hunks, false) })).filter(r => r.end > r.start);
     }
     for (const range of ranges) {
-      const text = after.slice(range.start, range.end);
+      const key = range.start + ':' + range.end;
+      if (!values.has(key)) { const text = after.slice(range.start, range.end); values.set(key, { text, contentHash: hash(text) }); }
+      const { text, contentHash } = values.get(key);
       if (!text.trim()) continue;
       const changed = text !== review.text;
-      const contentHash = hash(text);
       // Human saves share one AI generation: identical current text must have
       // the same version whether reached in one edit or several saved edits.
       let sourceVersion = review.sourceVersion || review.version;
@@ -87,7 +89,7 @@ function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
       if (actor === 'ai' && (changed || ranges.length > 1 || touched(review, hunks))) {
         sourceVersion = randomUUID(); sourceContentHash = contentHash;
       }
-      result.push({ ...review, ...range, text, contentHash,
+      result.add({ ...review, ...range, text, contentHash,
         id: ranges.length > 1 ? hash(`${review.id}:${range.start - position(review.start, hunks, true)}:${text}`) : review.id,
         sourceVersion, sourceContentHash,
         version: contentVersion(sourceVersion, sourceContentHash, contentHash),
@@ -95,7 +97,7 @@ function remapLegacy(reviews, before, after, actor = 'human', suppliedHunks) {
         status: actor === 'ai' && touched(review, hunks) ? 'unreviewed' : review.status });
     }
   }
-  return compact(result);
+  return result.finish();
 }
 function applyAILegacy(previous, before, after, revision, sessionId, mapped, hunks) {
   hunks ||= changes(before, after);
@@ -145,6 +147,21 @@ function movementAnalysis(before, after, options) {
   const analysis = movement.analyze(before, after, movement.options(options));
   return analysis.pairs.some(pair => pair.eligible && pair.moved) ? analysis : null;
 }
+function coarseAudit(previous, before, after, revision, sessionId, reason, hunks) {
+  // One whole-submission event keeps rejection exact. Text is persisted in the
+  // existing blob store by DocumentStore, rather than copied into every state.
+  const id = randomUUID(), version = randomUUID();
+  const event = { id, sessionId, revision, start: 0, end: after.length, baseStart: 0, baseEnd: before.length,
+    before, after, type: !before ? 'insert' : !after ? 'delete' : 'replace', coarse: reason, time: Date.now() };
+  // No movement matching or structure scan on this path. A coarse replacement
+  // is conservative; pending decisions outside it retain their identities.
+  hunks ||= [{ start: 0, end: before.length, newStart: 0, newEnd: after.length, before, after }];
+  const mapped = remapLegacy(previous, before, after, 'ai', hunks);
+  mapped.push({ id: randomUUID(), eventId: id, eventIds: [id], start: 0, end: after.length,
+    kind: after.length ? 'coarse' : 'delete', coarse: reason, status: 'unreviewed', text: after,
+    original: null, rejectionMode: 'event', version, contentHash: hash(after), revision });
+  return { reviews: compact(mapped), events: [event], summary: { reason, revision } };
+}
 function fragment(review, start, end, text) {
   const full = start === review.start && end === review.end, value = text.slice(start, end);
   if (!value.trim()) return null;
@@ -178,7 +195,8 @@ function pairHunks(pair) {
 function remap(reviews, before, after, actor = 'human', suppliedHunks, options, suppliedAnalysis) {
   reviews = compact(reviews);
   if (before === after || !reviews.length) return reviews;
-  const hunks = suppliedHunks || changes(before, after), analysis = suppliedAnalysis === undefined ? movementAnalysis(before, after, options) : suppliedAnalysis;
+  const hunks = suppliedHunks || changes(before, after), analysis = suppliedAnalysis === undefined ?
+    (budget.displayReason(reviews) || budget.hunkReason(hunks) || budget.inputReason(before, after) ? null : movementAnalysis(before, after, options)) : suppliedAnalysis;
   const legacy = remapLegacy(reviews, before, after, actor, hunks);
   if (!analysis) return legacy;
   const pairs = analysis.pairs.filter(pair => pair.eligible), result = outside(legacy, pairs.map(pair => pair.to), after);
@@ -231,7 +249,12 @@ function movementEvent(analysis, before, after, revision, sessionId) {
 }
 function applyAI(previous, before, after, revision, sessionId, options) {
   previous = compact(previous);
+  if (before === after) return { reviews: previous, events: [] };
+  const inputReason = budget.inputReason(before, after);
+  if (inputReason) return coarseAudit(previous, before, after, revision, sessionId, inputReason);
   const hunks = changes(before, after);
+  const detailReason = budget.hunkReason(hunks);
+  if (detailReason) return coarseAudit(previous, before, after, revision, sessionId, detailReason, hunks);
   const analysis = movementAnalysis(before, after, options);
   const mapped = remap(previous, before, after, 'ai', hunks, options, analysis);
   const audit = applyAILegacy(previous, before, after, revision, sessionId, structuredClone(mapped), hunks);

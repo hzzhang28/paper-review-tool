@@ -33,7 +33,7 @@ function applyReviewOperations(reviews, operations, context) {
       applied.push(operation); continue;
     }
     const selected = effective.selection || { start: 0, end: review.end - review.start };
-    const inspectedText = operation.inspectedText ?? review.text;
+    const inspectedText = operation.inspectedText ?? context?.inspectedText?.(operation) ?? review.text;
     const inspectedSelection = operation.selection || { start: 0, end: inspectedText.length };
     const fragments = [
       { start: 0, end: selected.start, sourceStart: 0, sourceEnd: inspectedSelection.start, status: review.status },

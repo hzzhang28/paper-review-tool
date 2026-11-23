@@ -198,7 +198,11 @@ function activate(context) {
         lastAINotification = notice.sequence;
         if (notice.status === 'conflict') vscode.window.showWarningMessage('AI 提交存在冲突，请点击 Conflicts 处理。');
         else if (notice.status === 'pending') vscode.window.showInformationMessage('AI 提交已进入 Pending，当前冲突处理完成后继续。');
-        else vscode.window.showInformationMessage('AI 已提交到 Master r' + notice.masterRevision + '。使用 Update Only 或 Merge Update 获取最新正文。');
+        else {
+          const summary = notice.reviewSummary ? ' ' + require('../runtime/server/src/reviewBudget').message : '';
+          vscode.window.showInformationMessage('AI 已提交到 Master r' + notice.masterRevision + '。使用 Update Only 或 Merge Update 获取最新正文。' + summary);
+          if (notice.reviewSummary) ui?.notifySummary('ai:' + notice.masterRevision, true);
+        }
       }
       if (ui) await ui.refresh(state.sequence);
     } catch (error) {

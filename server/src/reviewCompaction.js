@@ -7,7 +7,7 @@ const { hash } = require('./files');
 function accumulator() {
   const groups = new Map();
   function add(review) {
-    const category = ['move', 'delete'].includes(review.kind) ? review.kind : 'content';
+    const category = ['move', 'delete', 'coarse'].includes(review.kind) ? review.kind : 'content';
     const key = `${category}:${review.start}:${review.end}${category === 'delete' ? ':' + review.id : ''}`;
     const existing = groups.get(key);
     if (!existing) {

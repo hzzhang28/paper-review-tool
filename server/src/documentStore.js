@@ -382,8 +382,10 @@ class DocumentStore {
       mtime: this.state.human.mtime, movementOptions: this.movementOptions };
   }
   changeEventsView(id) {
-    return this.state.changeEvents.filter(event => !id || event.id === id).map(event => event.type === 'move' && event.beforeHash && event.afterHash ?
-      { ...event, before: this.text(event.beforeHash), after: this.text(event.afterHash) } : event);
+    return this.state.changeEvents.filter(event => !id || event.id === id).map(event => this.eventText(event));
+  }
+  eventText(event) {
+    return event?.beforeHash && event.afterHash ? { ...event, before: this.text(event.beforeHash), after: this.text(event.afterHash) } : event;
   }
   remapReviews(reviews, before, after, actor = 'human') {
     return reviewManager.remap(reviews, before, after, actor, undefined, this.movementOptions);
@@ -419,9 +421,9 @@ class DocumentStore {
       }
       next.reviews = reviews;
       next.changeEvents.push(...audit.events.map(event => {
-        // A reorder can span most of the paper. Keep its before/after text in
+        // Reorders/coarse edits can span the paper. Keep before/after text in
         // the existing content-addressed blob store rather than every SQL state.
-        const stored = event.type === 'move' ? { ...event, beforeHash: this.blob(event.before), afterHash: this.blob(event.after), before: undefined, after: undefined } : event;
+        const stored = event.type === 'move' || event.coarse ? { ...event, beforeHash: this.blob(event.before), afterHash: this.blob(event.after), before: undefined, after: undefined } : event;
         return { ...stored, snapshotHash: this.blob(aiText), baseRevision: next.sessions[sessionId]?.baseRevision };
       }));
     } else next.reviews = this.remapReviews(next.reviews, previous, text);
@@ -430,6 +432,7 @@ class DocumentStore {
     next.master = { revision: next.master.revision + 1, hash: snapshot, diskHash: hash(diskText) };
     next.revisions.push({ revision: next.master.revision, hash: snapshot, actor, sessionId, time: Date.now(), sequence: next.sequence });
     files.push(this.fileOperation(next.masterFile, diskText));
+    return actor === 'ai' ? next.reviews.find(review => review.coarse && review.revision === next.master.revision)?.coarse : undefined;
   }
   conflict(next, files, kind, base, current, incoming, details, sessionId) {
     const id = randomUUID();
@@ -615,7 +618,8 @@ class DocumentStore {
       next.aiNotification = { sequence: next.sequence, status: 'conflict', masterRevision: next.master.revision, conflictId: conflict.conflictId };
       return conflict;
     }
-    try { this.updateMaster(next, files, result.text, 'ai', id); }
+    let reviewSummary;
+    try { reviewSummary = this.updateMaster(next, files, result.text, 'ai', id); }
     catch (error) {
       if (error.code !== 'AI_AUDIT_FAILED') throw error;
       const conflict = this.conflict(next, files, 'ai-push', base, master, incoming, [{ reason: error.message }], id);
@@ -623,18 +627,28 @@ class DocumentStore {
       return conflict;
     }
     session.closed = true; session.pushedRevision = next.master.revision;
-    next.aiNotification = { sequence: next.sequence, status: 'submitted', masterRevision: next.master.revision };
+    next.aiNotification = { sequence: next.sequence, status: 'submitted', masterRevision: next.master.revision, ...(reviewSummary ? { reviewSummary } : {}) };
     return { ok: true, masterRevision: next.master.revision };
   }
 
   replayReviews(reviews, operations, text) {
-    return applyReviewOperations(reviews, operations, { mapOperation: (operation, review) => {
+    const snapshots = new Map();
+    const inspectedText = operation => {
+      if (typeof operation.inspectedText === 'string') return operation.inspectedText;
+      if (!operation.inspectedSnapshotHash) return;
+      const id = operation.inspectedSnapshotHash;
+      if (!snapshots.has(id)) snapshots.set(id, this.text(id));
+      return snapshots.get(id).slice(operation.inspectedStart, operation.inspectedEnd);
+    };
+    return applyReviewOperations(reviews, operations, { inspectedText, mapOperation: (operation, review) => {
       // Only human text changes within the same inspected AI generation may
       // move a staged decision. New AI edits replace that generation.
-      if (!review || !operation.sourceVersion || operation.sourceVersion !== (review.sourceVersion || review.version) || typeof operation.inspectedText !== 'string') return null;
+      if (!review || !operation.sourceVersion || operation.sourceVersion !== (review.sourceVersion || review.version)) return null;
+      const inspected = inspectedText(operation);
+      if (typeof inspected !== 'string') return null;
       let selection;
       if (operation.selection) {
-        selection = reviewManager.wholeRange(operation.selection, reviewManager.changes(operation.inspectedText, review.text));
+        selection = reviewManager.wholeRange(operation.selection, reviewManager.changes(inspected, review.text));
         if (!selection) return null;
       }
       return { ...operation, version: review.version, contentHash: review.contentHash, selection };
@@ -724,7 +738,7 @@ class DocumentStore {
     }
     const groups = new Map();
     for (const id of wholeEvents) {
-      const event = aiEvents.get(id);
+      const event = this.eventText(aiEvents.get(id));
       if (!event?.snapshotHash) throw new StoreError('原修改快照不可用，请选择历史版本恢复。');
       let snapshot = snapshots.get(event.snapshotHash);
       if (!snapshot) {
@@ -817,7 +831,7 @@ class DocumentStore {
       let text, result;
       const draft = this.text(next.human.draftHash);
       if (body.rejectWholeEvent || review.kind === 'delete') {
-        const event = next.changeEvents.find(e => e.id === review.eventId);
+        const event = this.eventText(next.changeEvents.find(e => e.id === review.eventId));
         if (!event?.snapshotHash) throw new StoreError('The original event snapshot is unavailable. Edit the text manually.');
         const snapshot = this.text(event.snapshotHash);
         const inverse = snapshot.slice(0, event.start) + event.before + snapshot.slice(event.end);
@@ -836,12 +850,12 @@ class DocumentStore {
       next.human.reviews = applyRejections(next.human.reviews, [rejected]);
       return { ok: true, text, draftVersion: next.human.version };
     }
-    const operation = this.reviewOperation(review, body);
+    const operation = this.reviewOperation(review, body, next.human.draftHash);
     next.human.reviewOps.push(operation);
     next.human.reviews = applyReviewOperations(next.human.reviews, [operation]).reviews;
     return { ok: true, draftVersion: next.human.version };
   }
-  reviewOperation(review, body) {
+  reviewOperation(review, body, snapshotHash) {
     if ((review.kind === 'delete' || review.kind === 'move' && body.action !== 'approve') && body.selection) throw new StoreError('位置调整或删除需按完整修改确认。', 400);
     if (body.selection) {
       const s = body.selection;
@@ -857,8 +871,12 @@ class DocumentStore {
         if (!boundaries.has(s.start) || !boundaries.has(s.end)) throw new StoreError('Review selection must follow token boundaries.', 400);
       }
     }
+    // Large inspections refer to the already-persisted Draft. Repeated partial
+    // approvals must not copy the whole remaining paper into state/history.
+    const inspected = snapshotHash && review.text.length > require('./reviewBudget').limits.changedChars ?
+      { inspectedSnapshotHash: snapshotHash, inspectedStart: review.start, inspectedEnd: review.end } : { inspectedText: review.text };
     return { reviewId: review.id, version: review.version, contentHash: review.contentHash,
-      sourceVersion: review.sourceVersion || review.version, inspectedText: review.text, action: body.action, selection: body.selection };
+      sourceVersion: review.sourceVersion || review.version, ...inspected, action: body.action, selection: body.selection };
   }
   approveReviews(next, body) {
     if (!Array.isArray(body.reviews) || !body.reviews.length) throw new StoreError('请选择要通过审核的范围。', 400);
@@ -874,7 +892,7 @@ class DocumentStore {
       if (!review || !reviewManager.matches(review, inspected)) throw new StoreError('Review no longer matches the inspected Draft.');
       if (ambiguous.has(review.id)) throw new StoreError('审计身份重复，请刷新并检查范围后重试。');
       if (operations.has(review.id)) throw new StoreError('同一个审计范围不能重复提交。', 400);
-      operations.set(review.id, this.reviewOperation(review, { action: 'approve', selection: inspected.selection }));
+      operations.set(review.id, this.reviewOperation(review, { action: 'approve', selection: inspected.selection }, next.human.draftHash));
     }
     next.human.reviews = next.human.reviews.flatMap(review => {
       const operation = operations.get(review.id);
