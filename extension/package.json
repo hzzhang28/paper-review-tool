@@ -1474,7 +1474,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.9r1",
+  "paperReviewBuild": "0.4.9r2",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

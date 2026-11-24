@@ -14,7 +14,7 @@ class ReviewUi {
     this.yellow = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(230, 185, 35, 0.25)', overviewRulerColor: '#d6af22', overviewRulerLane: vscode.OverviewRulerLane.Right });
     this.red = vscode.window.createTextEditorDecorationType({ backgroundColor: 'rgba(220, 55, 55, 0.25)', overviewRulerColor: '#df5555', overviewRulerLane: vscode.OverviewRulerLane.Right });
     this.issueMark = vscode.window.createTextEditorDecorationType({ borderWidth: '0 0 1px 0', borderStyle: 'solid', borderColor: '#568cdd', textDecoration: 'underline' });
-    this.deletions = vscode.window.createTextEditorDecorationType({ after: { color: new vscode.ThemeColor('editorError.foreground'), textDecoration: 'line-through', margin: '0 0 0 0.4em' } });
+    this.deletions = vscode.window.createTextEditorDecorationType({ after: { color: new vscode.ThemeColor('editor.foreground'), backgroundColor: 'rgba(230, 185, 35, 0.25)', textDecoration: 'line-through', margin: '0 0 0 0.4em' } });
     this.outlineProvider = { onDidChangeTreeData: this.outlineEmitter.event, getTreeItem: item => item,
       getChildren: parent => parent ? parent.children : this.outline() };
     this.issueProvider = { onDidChangeTreeData: this.issueEmitter.event, getTreeItem: item => item, getChildren: parent => {
@@ -91,10 +91,19 @@ class ReviewUi {
     if (!this.uri) return;
     for (const editor of vscode.window.visibleTextEditors) {
       if (editor.document.uri.toString() !== this.uri.toString()) continue;
+      const text = editor.document.getText();
       const range = value => new vscode.Range(editor.document.positionAt(value.start), editor.document.positionAt(value.end));
+      // Deleted text has no current extent. Paint one adjacent Unicode character
+      // for the overview ruler, without changing the zero-width audit anchor.
+      const deletionRange = value => {
+        let start = value.start, end = start;
+        if (start < text.length) end += text.codePointAt(start) > 0xffff ? 2 : 1;
+        else if (start > 0) { start--; if (/[\uDC00-\uDFFF]/.test(text[start]) && start > 0 && /[\uD800-\uDBFF]/.test(text[start - 1])) start--; }
+        return range({ start, end });
+      };
       let reviews = [], issues = [];
       // Preview-only projection: approving still saves and checks server versions.
-      try { ({ reviews, issues } = this.projected(editor.document.getText())); } catch { /* A diff budget failure must never paint stale offsets. */ }
+      try { ({ reviews, issues } = this.projected(text)); } catch { /* A diff budget failure must never paint stale offsets. */ }
       const summary = budget.displayReason(reviews);
       if (summary) {
         const coarse = reviews.find(r => r.coarse);
@@ -103,7 +112,7 @@ class ReviewUi {
         // Coarse approval fragments retain their exact visible boundaries.
         const ranges = status => {
           const selected = reviews.filter(r => r.status === status && r.kind !== 'delete');
-          if (selected.length > budget.limits.decorations) return [{ start: 0, end: editor.document.getText().length }];
+          if (selected.length > budget.limits.decorations) return [{ start: 0, end: text.length }];
           return selected.sort((a, b) => a.start - b.start).reduce((result, value) => {
             const last = result.at(-1);
             if (last && value.start <= last.end) last.end = Math.max(last.end, value.end);
@@ -111,7 +120,7 @@ class ReviewUi {
             return result;
           }, []);
         };
-        const yellow = summary === 'coarse' ? ranges('unreviewed') : [{ start: 0, end: editor.document.getText().length }];
+        const yellow = summary === 'coarse' ? ranges('unreviewed') : [{ start: 0, end: text.length }];
         if (!yellow.length && reviews.some(r => r.kind === 'delete')) yellow.push({ start: 0, end: 0 });
         editor.setDecorations(this.deletions, []); editor.setDecorations(this.light, []);
         editor.setDecorations(this.yellow, yellow.map(value => ({ range: range(value), hoverMessage: budget.message,
@@ -129,13 +138,16 @@ class ReviewUi {
           ' → 当前片段 ' + ((move.movement?.targetIndex ?? 0) + 1) + '；重合度 ' + Math.round((move.movement?.similarity ?? 1) * 100) +
           '%。使用“通过审核”确认选中范围内的内容与位置标记；未选中的部分保留。' }));
       });
-      const removed = reviews.filter(r => r.kind === 'delete').map(r => ({ range: range(r),
+      const deleted = reviews.filter(r => r.kind === 'delete');
+      const removed = deleted.map(r => ({ range: range(r),
         hoverMessage: 'AI 删除（' + (r.status === 'needsFix' ? '需修改' : '待审核') + '）：\n' + (r.deletedText || '').slice(0, 8000) + '\n在此位置右键通过审核或拒绝修改。',
-        renderOptions: { after: { contentText: '⟪− ' + (r.deletedText || '').replace(/\s+/g, ' ').slice(0, 100) + ((r.deletedText || '').length > 100 ? '…' : '') + ' ⟫' } } }));
+        renderOptions: { after: { contentText: '⟪− ' + (r.deletedText || '').replace(/\s+/g, ' ').slice(0, 100) + ((r.deletedText || '').length > 100 ? '…' : '') + ' ⟫',
+          ...(r.status === 'needsFix' ? { backgroundColor: 'rgba(220, 55, 55, 0.25)' } : {}) } } }));
       editor.setDecorations(this.deletions, removed);
       editor.setDecorations(this.light, light);
-      editor.setDecorations(this.yellow, content.filter(r => r.status === 'unreviewed').map(r => ({ range: range(r), hoverMessage: r.origin === 'initial' ? '初始正文：待审核' : r.origin === 'manual' ? '手动标记：待审核' : 'AI 修改：待审核' })));
-      editor.setDecorations(this.red, reviews.filter(r => r.status === 'needsFix').map(r => ({ range: range(r), hoverMessage: '需修改' })));
+      editor.setDecorations(this.yellow, content.filter(r => r.status === 'unreviewed').map(r => ({ range: range(r), hoverMessage: r.origin === 'initial' ? '初始正文：待审核' : r.origin === 'manual' ? '手动标记：待审核' : 'AI 修改：待审核' }))
+        .concat(deleted.filter(r => r.status === 'unreviewed').map(r => ({ range: deletionRange(r), hoverMessage: 'AI 删除：待审核。在删除位置通过审核或拒绝修改。' }))));
+      editor.setDecorations(this.red, reviews.filter(r => r.status === 'needsFix').map(r => ({ range: r.kind === 'delete' ? deletionRange(r) : range(r), hoverMessage: '需修改' })));
       editor.setDecorations(this.issueMark, issues.filter(i => i.type === 'anchored' && i.status === 'open').map(i => ({ range: range(i.anchor), hoverMessage: i.title })));
     }
   }
