@@ -141,6 +141,13 @@ class DocumentStore {
     state.human.issueOps = state.human.issueOps.map(op => ({ ...op,
       issue: state.human.issues.find(i => i.id === op.issue.id) || op.issue }));
     state.human.metadataBaseHash ??= this.metadataHash(state.reviews, state.issues);
+    // Older Human Pushes could retain a locally lost/remapped review even when
+    // the submitted text already equals Master. Reconcile only acknowledged
+    // own commits; unseen AI generations must still require an explicit update.
+    if (this.canSynchronizeOwnMetadata(state) && state.human.metadataBaseHash !== this.metadataHash(state.reviews, state.issues)) {
+      this.synchronizeHumanMetadata(state);
+      this.compactedOnLoad = true;
+    }
     for (const conflict of state.conflicts.filter(c => c.status === 'open')) {
       if (!state.issues.some(issue => issue.conflictId === conflict.id) && !state.issueTombstones.some(issue => issue.conflictId === conflict.id)) state.issues.push({
         id: hash(`conflict-issue:${conflict.id}`), type: 'general', conflictId: conflict.id,
@@ -153,6 +160,19 @@ class DocumentStore {
   metadataHash(reviews, issues) {
     return hash(JSON.stringify({ reviews: reviews.map(r => [r.id, r.version, r.status, r.contentHash]).sort((a, b) => a[0].localeCompare(b[0])),
       issues: issues.map(i => [i.id, i.version, i.status, i.type, i.title, i.description]).sort((a, b) => a[0].localeCompare(b[0])) }));
+  }
+  canSynchronizeOwnMetadata(state) {
+    const h = state.human;
+    if (state.activeConflict || state.pendingSubmissions.length || state.revisions.at(-1)?.actor !== 'human' || h.baseRevision !== state.master.revision || h.baseHash !== state.master.hash || h.draftHash !== state.master.hash || h.reviewOps.length || h.issueOps.length || h.rejections.length) return false;
+    let aiRevision = state.aiNotification?.status === 'submitted' ? state.aiNotification.masterRevision : 0;
+    for (const r of state.revisions) if (r.actor === 'ai') aiRevision = Math.max(aiRevision, r.revision);
+    for (const r of state.reviews) if (r.origin !== 'manual') aiRevision = Math.max(aiRevision, r.revision || 0);
+    return aiRevision <= (h.pulledRevision || 1);
+  }
+  synchronizeHumanMetadata(state) {
+    state.human.reviews = structuredClone(state.reviews);
+    state.human.issues = structuredClone(state.issues);
+    state.human.metadataBaseHash = this.metadataHash(state.reviews, state.issues);
   }
 
   relocateIssues(issues, before, after) {
@@ -451,12 +471,13 @@ class DocumentStore {
     this.expectDraft(next, body.expectedDraftVersion);
     if (!processingPending && (next.activeConflict || next.pendingSubmissions.length)) return this.queueSubmission(next, { kind: 'human', human: structuredClone(next.human) });
     const base = this.text(next.human.baseHash), draft = this.text(next.human.draftHash), master = this.text(next.master.hash);
+    const metadataWasCurrent = next.human.metadataBaseHash === this.metadataHash(next.reviews, next.issues);
     const result = merge(base, master, draft);
     if (!result.ok) return this.conflict(next, files, 'human-push', base, master, draft, result.conflicts);
     this.updateMaster(next, files, result.text, 'human');
-    return this.acceptHumanPush(next, draft, result.text);
+    return this.acceptHumanPush(next, draft, result.text, metadataWasCurrent);
   }
-  acceptHumanPush(next, draft, mergedText) {
+  acceptHumanPush(next, draft, mergedText, metadataWasCurrent = false) {
     for (const op of next.human.issueOps) {
       const current = next.issues.find(i => i.id === op.issue.id);
       if ((current?.version ?? null) !== op.expectedVersion) throw new StoreError('An Issue changed since the last update. Preserve local notes and reconcile the latest Issue before pushing.');
@@ -487,6 +508,7 @@ class DocumentStore {
     // This is the submitted Draft, NOT the resulting Master.
     next.human.baseHash = next.human.draftHash;
     next.human.baseRevision = next.master.revision;
+    if (draft === mergedText && (metadataWasCurrent || this.canSynchronizeOwnMetadata(next))) this.synchronizeHumanMetadata(next);
     return { ok: true, masterRevision: next.master.revision, draftVersion: next.human.version, staleReviews: audit.stale.length };
   }
   humanUpdate(next, files, body) {

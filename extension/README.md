@@ -26,6 +26,8 @@
 
 在 Human Draft 中写作，通过 Push 更新 Master。请避免其他程序直接覆盖 Master。
 
+AI Pull 仅创建独立副本，创建或编辑副本不会改变 Master 或产生 New Updates。AI Push 使用副本创建时的 Base，按 `Main − Base` 合并到当前 Master；人类未获取的 AI 修改仍需通过 Update Only 或 Merge Update 载入。
+
 ## 保存与同步
 
 | 操作 | 行为 |

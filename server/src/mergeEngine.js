@@ -40,8 +40,8 @@ function lineAnchors(base, next, a0, a1, b0, b1) {
   for (let i = tails.at(-1); i !== undefined && i !== -1; i = previous[i]) anchors.push(pairs[i]);
   return anchors.reverse();
 }
-function edits(base, next) {
-  const result = [], deadline = Date.now() + 500;
+function edits(base, next, deadline = Date.now() + 500) {
+  const result = [];
   function refine(a0, a1, b0, b1, depth = 0) {
     while (a0 < a1 && b0 < b1 && base[a0] === next[b0]) { a0++; b0++; }
     while (a0 < a1 && b0 < b1 && base[a1 - 1] === next[b1 - 1]) { a1--; b1--; }
@@ -102,8 +102,8 @@ function ambiguous(base, edit) {
   return false;
 }
 
-function alignmentAmbiguous(base, next, forward) {
-  const backward = edits([...base].reverse(), [...next].reverse()).map(edit => ({
+function alignmentAmbiguous(base, next, forward, deadline) {
+  const backward = edits([...base].reverse(), [...next].reverse(), deadline).map(edit => ({
     start: base.length - edit.end,
     end: base.length - edit.start,
     insert: [...edit.insert].reverse()
@@ -112,16 +112,17 @@ function alignmentAmbiguous(base, next, forward) {
   return JSON.stringify(forward) !== JSON.stringify(backward);
 }
 
-function merge(baseText, currentText, incomingText) {
+function mergeFlat(baseText, currentText, incomingText, deadline) {
+  if (currentText === incomingText) return { ok: true, text: currentText };
   if (incomingText === baseText) return { ok: true, text: currentText };
   if (currentText === baseText) return { ok: true, text: incomingText };
   try {
     const base = tokens(baseText);
     const currentTokens = tokens(currentText), incomingTokens = tokens(incomingText);
-    const current = edits(base, currentTokens);
-    const incoming = edits(base, incomingTokens);
+    const current = edits(base, currentTokens, deadline);
+    const incoming = edits(base, incomingTokens, deadline);
     const conflicts = [];
-    if (alignmentAmbiguous(base, currentTokens, current) || alignmentAmbiguous(base, incomingTokens, incoming)) {
+    if (alignmentAmbiguous(base, currentTokens, current, deadline) || alignmentAmbiguous(base, incomingTokens, incoming, deadline)) {
       return { ok: false, conflicts: [{ reason: 'Token alignment is not unique in both diff directions' }] };
     }
     for (const edit of [...current, ...incoming]) {
@@ -147,6 +148,34 @@ function merge(baseText, currentText, incomingText) {
   } catch (error) {
     return { ok: false, conflicts: [{ reason: error.message }] };
   }
+}
+
+function merge(baseText, currentText, incomingText) {
+  const result = mergeFlat(baseText, currentText, incomingText);
+  if (result.ok) return result;
+  // A local alignment tie must not veto an independent edit elsewhere. Only
+  // exact, unique lines agreed by all three snapshots may isolate the regions.
+  // No fuzzy location search, moved-line matching or overlapping-edit override.
+  try {
+    const deadline = Date.now() + 500;
+    const [base, current, incoming] = [baseText, currentText, incomingText].map(tokens);
+    const left = lineAnchors(base, current, 0, base.length, 0, current.length);
+    const right = new Map(lineAnchors(base, incoming, 0, base.length, 0, incoming.length).map(pair => [pair.a.start, pair]));
+    const anchors = left.filter(pair => right.has(pair.a.start));
+    if (!anchors.length) return result;
+    const output = [];
+    let a = 0, b = 0, c = 0;
+    const gap = (aEnd, bEnd, cEnd) => mergeFlat(base.slice(a, aEnd).join(''), current.slice(b, bEnd).join(''), incoming.slice(c, cEnd).join(''), deadline);
+    for (const anchor of anchors) {
+      if (Date.now() > deadline) return result;
+      const other = right.get(anchor.a.start), local = gap(anchor.a.start, anchor.b.start, other.b.start);
+      if (!local.ok) return result;
+      output.push(local.text, base.slice(anchor.a.start, anchor.a.end).join(''));
+      a = anchor.a.end; b = anchor.b.end; c = other.b.end;
+    }
+    const local = gap(base.length, current.length, incoming.length);
+    return local.ok ? { ok: true, text: output.concat(local.text).join('') } : result;
+  } catch { return result; }
 }
 
 module.exports = { tokens, edits, merge };
