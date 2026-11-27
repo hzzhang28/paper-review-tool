@@ -67,9 +67,19 @@ function activate(context) {
       threshold: (settings.get('review.movementThreshold') ?? 80) / 100, minWords: settings.get('review.movementMinWords') ?? 8 } };
   };
   const storageUi = new StorageUi(vscode, () => client ? { client, root: projectRoot } : undefined, () => refreshStatus(true));
-  const overleaf = new OverleafUi(vscode, context, () => projectRoot ? { root: projectRoot, file: masterFile } : undefined);
+  const overleaf = new OverleafUi(vscode, context, () => projectRoot ? { root: projectRoot, file: masterFile, importMaster: importOverleafMaster } : undefined);
   context.subscriptions.push(overleaf);
   void overleaf.refresh();
+  async function importOverleafMaster(staged) {
+    const current = client;
+    if (!current || transitioning || provider.blocked) throw Error('论文服务未连接，未导入远端正文。');
+    const session = await current.request('POST', '/v1/ai/clone');
+    if (client !== current || transitioning) throw Error('项目已切换，未导入远端正文。');
+    await fs.promises.copyFile(staged, session.file);
+    try { return await current.request('POST', '/v1/ai/' + session.sessionId + '/push'); }
+    catch (error) { if (error.result?.conflictId) return error.result; throw error; }
+    finally { await refreshStatus(true); }
+  }
   function sourceBridge() {
     if (!chatBridge) {
       chatBridge = new ChatScriptBridge(vscode, fs.readFileSync(path.join(context.extensionPath, 'resources', 'chatgptLatexSource.js'), 'utf8'));
@@ -454,6 +464,7 @@ function activate(context) {
   register('paperReview.configureAgent', () => targets.configureAgent());
   register('paperReview.overleafConfigure', () => overleaf.configure());
   register('paperReview.overleafPush', () => overleaf.push());
+  register('paperReview.overleafPull', () => overleaf.pull());
   register('paperReview.overleafCredentials', () => overleaf.credentials());
   register('paperReview.overleafForgetCredentials', () => overleaf.forgetCredentials());
   register('paperReview.overleafLog', () => overleaf.showLog());

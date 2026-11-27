@@ -2,7 +2,7 @@
   "name": "paper-review-tool",
   "displayName": "Paper Review Tool",
   "description": "单文件 LaTeX 写作、AI 修改审计与 Issue 管理。",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "publisher": "local-paper-tools",
   "license": "MIT",
   "engines": {
@@ -255,6 +255,12 @@
         "enablement": "paperReview.projectOpen && paperReview.overleafEnabled"
       },
       {
+        "command": "paperReview.overleafPull",
+        "title": "Paper: 从 Overleaf 拉取",
+        "icon": "$(cloud-download)",
+        "enablement": "paperReview.projectOpen && paperReview.overleafEnabled"
+      },
+      {
         "command": "paperReview.overleafCredentials",
         "title": "Paper: 保存 / 更换 Overleaf Git Token"
       },
@@ -374,14 +380,19 @@
           "group": "5_overleaf@0"
         },
         {
-          "command": "paperReview.overleafConfigure",
+          "command": "paperReview.overleafPull",
           "when": "resourceScheme == paper && paperReview.overleafEnabled",
           "group": "5_overleaf@1"
         },
         {
-          "command": "paperReview.overleafLog",
+          "command": "paperReview.overleafConfigure",
           "when": "resourceScheme == paper && paperReview.overleafEnabled",
           "group": "5_overleaf@2"
+        },
+        {
+          "command": "paperReview.overleafLog",
+          "when": "resourceScheme == paper && paperReview.overleafEnabled",
+          "group": "5_overleaf@3"
         },
         {
           "command": "paperReview.emergencyReset",
@@ -523,6 +534,11 @@
           "group": "5_overleaf@0"
         },
         {
+          "command": "paperReview.overleafPull",
+          "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
+          "group": "5_overleaf@1"
+        },
+        {
           "command": "paperReview.overleafConfigure",
           "when": "paperReview.projectOpen && view == paperReview.reviews",
           "group": "navigation@3"
@@ -530,7 +546,7 @@
         {
           "command": "paperReview.overleafLog",
           "when": "paperReview.projectOpen && view == paperReview.reviews && paperReview.overleafEnabled",
-          "group": "5_overleaf@2"
+          "group": "5_overleaf@3"
         },
         {
           "command": "paperReview.storage",
@@ -1311,8 +1327,8 @@
         "paperReview.overleaf.enabled": {
           "type": "boolean",
           "default": false,
-          "title": "Overleaf 推送",
-          "description": "启用可选的手动 Git 推送；也可直接点击章节面板标题栏的 Overleaf 按钮配置并启用。",
+          "title": "Overleaf 同步",
+          "description": "启用可选的手动 Git Push / Pull；也可点击章节面板标题栏的 Overleaf 按钮配置并启用。",
           "restricted": true,
           "order": 50
         },
@@ -1474,7 +1490,7 @@
       }
     }
   },
-  "paperReviewBuild": "0.4.9r3",
+  "paperReviewBuild": "0.4.10r1",
   "repository": {
     "type": "git",
     "url": "https://github.com/hzzhang28/paper-review-tool.git"

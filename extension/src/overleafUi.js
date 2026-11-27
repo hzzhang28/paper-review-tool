@@ -5,6 +5,7 @@ const { createHash } = require('node:crypto');
 const { Worker } = require('node:worker_threads');
 const { projectUrl } = require('./overleafGit');
 const { projectPath, remotePath } = require('./overleafFiles');
+const { planPull, applyPull } = require('./overleafPull');
 const { redact, errorDetails, publicMessage } = require('./overleafDiagnostics');
 const TOKEN_KEY = 'paperReview.overleaf.token';
 
@@ -46,6 +47,7 @@ class OverleafUi {
     let action;
     try { action = await this.configureProject(); } finally { this.configuring = false; }
     if (action === 'push') return this.push();
+    if (action === 'pull') return this.pull();
   }
   async configureProject() {
     const project = this.project();
@@ -55,6 +57,7 @@ class OverleafUi {
       const enabled = this.enabled();
       const choice = await this.vscode.window.showQuickPick([
         ...(config.url && config.mappings.length ? [{ label: '$(cloud-upload) 推送到 Overleaf', description: '上传已保存的选定文件', action: 'push' }] : []),
+        ...(config.url ? [{ label: '$(cloud-download) 从 Overleaf 拉取', description: '选择整个项目或按现有映射下载，直接覆盖', action: 'pull' }] : []),
         { label: enabled ? '保存并关闭' : '完成配置并启用', action: 'done' },
         { label: '项目地址', description: config.url || '尚未设置', action: 'url' },
         { label: '添加文件', detail: '选择本地文件，指定远端完整文件路径。', action: 'file' },
@@ -62,18 +65,18 @@ class OverleafUi {
         { label: '保存 / 更换 Git Token', action: 'token' },
         { label: '删除 Git Token', action: 'forget' },
         { label: '打开日志', description: '输出 → Paper Overleaf', action: 'log' },
-        ...(enabled ? [{ label: '关闭 Overleaf 推送', description: '保留项目地址和映射规则', action: 'disable' }] : []),
+        ...(enabled ? [{ label: '关闭 Overleaf 同步', description: '保留项目地址和映射规则', action: 'disable' }] : []),
         ...config.mappings.map((rule, index) => ({ label: (rule.kind === 'folder' ? '文件夹：' : '文件：') + (rule.source || './'), description: '→ ' + (rule.target || '/'), action: 'rule', index }))
-      ], { title: 'Overleaf', placeHolder: '项目地址、文件 / 文件夹映射与推送；点击已有规则修改或删除', ignoreFocusOut: true });
+      ], { title: 'Overleaf', placeHolder: '项目地址、文件映射、Push / Pull；点击已有规则修改或删除', ignoreFocusOut: true });
       if (!choice) return;
       if (choice.action === 'log') { this.showLog(); return; }
-      if (choice.action === 'done' || choice.action === 'push') {
-        if (!config.url || !config.mappings.length) { void this.vscode.window.showInformationMessage('请先设置项目地址并添加推送范围。'); continue; }
+      if (['done', 'push', 'pull'].includes(choice.action)) {
+        if (!config.url || choice.action === 'push' && !config.mappings.length) { void this.vscode.window.showInformationMessage('请先设置项目地址；推送还需添加文件映射。'); continue; }
         config.url = projectUrl(config.url);
         await save();
         await this.vscode.workspace.getConfiguration('paperReview').update('overleaf.enabled', true, this.vscode.ConfigurationTarget.Workspace);
         await this.refresh();
-        return choice.action === 'push' ? 'push' : undefined;
+        return choice.action === 'done' ? undefined : choice.action;
       }
       if (choice.action === 'disable') {
         await this.vscode.workspace.getConfiguration('paperReview').update('overleaf.enabled', false, this.vscode.ConfigurationTarget.Workspace);
@@ -114,18 +117,32 @@ class OverleafUi {
       validateInput: value => { try { remotePath(value, kind === 'folder'); } catch (error) { return error.message; } } });
   }
   async push() {
+    return this.transfer('push');
+  }
+  async pull(scope) {
+    if (this.running || this.configuring) throw Error('正在处理 Overleaf 操作，请完成后重试。');
+    if (!scope) scope = (await this.vscode.window.showQuickPick([
+      { label: '整个项目', description: '下载到当前本地项目根目录', scope: 'all' },
+      { label: '按现有映射', description: '文件覆盖；文件夹补齐远端文件', scope: 'mapped' }
+    ], { title: 'Overleaf Pull', placeHolder: '已有文件直接覆盖，本地独有文件保留', ignoreFocusOut: true }))?.scope;
+    if (!scope) return;
+    return this.transfer('pull', scope);
+  }
+  async transfer(direction, scope) {
+    const pulling = direction === 'pull', label = pulling ? '拉取' : '推送';
     if (this.disposed) throw Error('扩展正在关闭，请重新打开后重试。');
-    if (!this.enabled()) throw Error('请先启用并配置 Overleaf 推送。');
-    if (this.running) throw Error('正在推送，请等待完成。');
+    if (!this.enabled()) throw Error('请先启用并配置 Overleaf 同步。');
+    if (this.running) throw Error('正在推送或拉取，请等待完成。');
     if (this.configuring) throw Error('请先完成 Overleaf 配置。');
     const project = this.project(), config = this.context.workspaceState.get(project.key);
-    if (!config?.mappings?.length) throw Error('请先运行“Paper: Overleaf 配置”。');
+    if (!config?.url || (!pulling || scope === 'mapped') && !config?.mappings?.length) throw Error('请先运行“Paper: Overleaf 配置”。');
+    if (pulling && !['all', 'mapped'].includes(scope)) throw Error('请选择有效的下载范围。');
     const url = projectUrl(config.url);
     this.running = true;
     let cache, token;
     const diagnosticContext = { root: project.root, url, extensionPath: this.context.extensionPath };
     try {
-      this.log('\n----- Overleaf Push ' + new Date().toISOString() + ' -----');
+      this.log('\n----- Overleaf ' + (pulling ? 'Pull' : 'Push') + ' ' + new Date().toISOString() + ' -----');
       this.log('Build: ' + require('../package.json').paperReviewBuild);
       this.log('正在读取安全存储中的凭据…');
       token = await this.context.secrets.get(TOKEN_KEY);
@@ -137,12 +154,12 @@ class OverleafUi {
       if (this.disposed) return;
       const storage = path.join(this.context.globalStorageUri.fsPath, 'overleaf');
       fs.mkdirSync(storage, { recursive: true });
-      cache = fs.mkdtempSync(path.join(storage, 'push-'));
+      cache = fs.mkdtempSync(path.join(storage, direction + '-'));
       diagnosticContext.cache = cache;
-      const result = await this.vscode.window.withProgress({ location: this.vscode.ProgressLocation.Window, title: 'Overleaf 推送', cancellable: false }, progress => new Promise((resolve, reject) => {
+      let result = await this.vscode.window.withProgress({ location: this.vscode.ProgressLocation.Window, title: 'Overleaf ' + label, cancellable: false }, progress => new Promise((resolve, reject) => {
         const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'NODE_OPTIONS'));
         const worker = new this.WorkerClass(path.join(__dirname, 'overleafWorker.js'), {
-          workerData: { root: project.root, url, mappings: config.mappings, token, cache, extensionPath: this.context.extensionPath }, execArgv: [], env, stdout: true, stderr: true
+          workerData: { root: project.root, url, mappings: config.mappings || [], token, cache, direction, scope, extensionPath: this.context.extensionPath }, execArgv: [], env, stdout: true, stderr: true
         });
         this.worker = worker;
         // Never forward raw dependency diagnostics, which might contain HTTP request data.
@@ -158,25 +175,35 @@ class OverleafUi {
         worker.once('exit', code => {
           this.worker = undefined;
           if (failure || code !== 0 || !result) {
-            this.log(code === 0 && failure ? '后台任务已正常结束；推送结果为失败。' : '后台任务异常结束，退出码：' + code);
-            reject(Object.assign(Error(failure || 'Overleaf 推送中断，请重试。'), { diagnosticLogged: true }));
+            this.log(code === 0 && failure ? '后台任务已正常结束；' + label + '结果为失败。' : '后台任务异常结束，退出码：' + code);
+            reject(Object.assign(Error(failure || 'Overleaf ' + label + '中断，请重试。'), { diagnosticLogged: true }));
           }
           else resolve(result);
         });
       }));
+      if (pulling) {
+        if (this.disposed || this.getProject()?.root !== project.root) throw Error('项目已关闭或切换，未写入下载文件。');
+        const plan = planPull(project.root, result.files, config.mappings || [], scope);
+        result = await applyPull(project.root, plan, project.file, project.importMaster, message => this.log(message, diagnosticContext));
+        const detail = result.submission?.conflictId ? '正文已交接，存在冲突，请点击 Conflicts 处理。' :
+          result.submission?.pending ? '正文已进入 Pending。' : result.submission ? '正文已作为 AI 修改提交，请手动 Update。' : '';
+        const message = 'Overleaf 拉取完成：' + result.count + ' 个文件。' + detail + (result.skipped ? ' 已保留正在使用的运行数据。' : '');
+        this.log(message); void this.vscode.window.showInformationMessage(message);
+        return result;
+      }
       this.log(result.changed ? '推送完成。' : '所选文件无变更，无需推送。');
       void this.vscode.window.showInformationMessage(result.changed ? 'Overleaf 推送完成。' : '所选文件与 Overleaf 一致，无需推送。');
       return result;
     } catch (error) {
       if (!error.diagnosticLogged) this.log(errorDetails(error, diagnosticContext));
-      const message = redact(error.diagnosticLogged ? error.message : publicMessage(error), diagnosticContext);
+      const message = redact(error.diagnosticLogged ? error.message : publicMessage(error, direction), diagnosticContext);
       this.log('失败：' + message);
       throw Object.assign(Error(message + '（输出 → Paper Overleaf）'), { overleafLog: true });
     } finally {
       token = undefined; diagnosticContext.token = undefined; this.running = false;
       if (cache) {
         const storage = path.resolve(this.context.globalStorageUri.fsPath, 'overleaf');
-        if (path.dirname(path.resolve(cache)) === storage && path.basename(cache).startsWith('push-')) {
+        if (path.dirname(path.resolve(cache)) === storage && path.basename(cache).startsWith(direction + '-')) {
           try { fs.rmSync(cache, { recursive: true, force: true }); }
           catch (error) { this.log('临时数据清理失败：\n' + errorDetails(error, diagnosticContext)); }
         }

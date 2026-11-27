@@ -66,7 +66,7 @@ async function overlayTree(git, options, original, files) {
   };
   return write(original, changes);
 }
-function currentReference(refs) {
+function currentReference(refs, operation = '推送') {
   const isBranch = ref => typeof ref === 'string' && ref.startsWith('refs/heads/') && ref.length > 'refs/heads/'.length;
   const nonzero = refs.filter(ref => /^[a-f0-9]{40}$/.test(ref.oid) && ref.oid !== '0'.repeat(40));
   const head = nonzero.find(ref => ref.ref === 'HEAD');
@@ -85,11 +85,11 @@ function currentReference(refs) {
     const declared = refs.filter(ref => isBranch(ref.ref));
     if (declared.length <= 1) return { remoteRef: declared[0]?.ref || 'refs/heads/master', empty: true };
   }
-  throw Error('Overleaf 未提供唯一的当前引用，已停止推送；请查看日志中的远端引用信息。');
+  throw Error('Overleaf 未提供唯一的当前引用，已停止' + operation + '；请查看日志中的远端引用信息。');
 }
-async function remoteReferences(git, transport, forPush = false) {
+async function remoteReferences(git, transport, forPush = false, operation = '推送') {
   const info = await git.getRemoteInfo2({ ...transport, protocolVersion: 1, forPush });
-  if (info.protocolVersion !== 1) throw Error('Overleaf 未提供受支持的 Git 引用响应，已停止推送。');
+  if (info.protocolVersion !== 1) throw Error('Overleaf 未提供受支持的 Git 引用响应，已停止' + operation + '。');
   const refs = info.refs || [];
   // An unborn HEAD can be advertised as a capability without a ref entry.
   const target = typeof info.capabilities.symref === 'string' && /^HEAD:(refs\/heads\/.+)$/.exec(info.capabilities.symref)?.[1];
@@ -134,4 +134,37 @@ async function pushFiles({ url, token, cache, files, stage = () => {}, git = loa
   if (!result.ok || Object.values(result.refs || {}).some(ref => !ref.ok)) throw Error('Overleaf 拒绝了本次推送。');
   return { changed: true, count: files.length };
 }
-module.exports = { projectUrl, loadGit, httpClient, overlayTree, currentReference, pushFiles };
+async function pullFiles({ url, token, cache, include = () => true, stage = () => {}, git = loadGit(), http, log = () => {} }) {
+  url = projectUrl(url);
+  const options = { fs, gitdir: path.join(cache, 'git') };
+  await git.init({ ...options, bare: true, defaultBranch: 'paper-overleaf' });
+  await git.addRemote({ ...options, remote: 'origin', url });
+  const transport = { ...options, http: http || httpClient(url, fetch, 120000, log), url,
+    onAuth: () => { log('收到 Git 认证请求，使用安全存储中的 Token。'); return { username: 'git', password: token }; },
+    onAuthFailure: () => { log('Git 认证被拒绝。'); return { cancel: true }; } };
+  stage('正在读取 Overleaf 当前项目…');
+  const current = currentReference(await remoteReferences(git, transport, false, '拉取'), '拉取');
+  if (current.empty) return { files: [], count: 0 };
+  const fetched = await git.fetch({ ...transport, ref: current.fetchRef, remoteRef: current.fetchRef, singleBranch: true, tags: false });
+  if (!fetched.fetchHead) throw Error('无法读取 Overleaf 当前快照，请重试。');
+  const { commit } = await git.readCommit({ ...options, oid: fetched.fetchHead });
+  const files = [];
+  const walk = async (oid, prefix = '') => {
+    for (const entry of (await git.readTree({ ...options, oid })).tree) {
+      const source = remotePath(prefix ? prefix + '/' + entry.path : entry.path);
+      if (entry.type === 'tree') { await walk(entry.oid, source); continue; }
+      if (!include(source)) continue;
+      if (entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode)) throw Error('Overleaf 下载范围包含不支持的链接或文件类型。');
+      const { blob } = await git.readBlob({ ...options, oid: entry.oid });
+      const staged = path.join(cache, 'files', ...source.split('/'));
+      fs.mkdirSync(path.dirname(staged), { recursive: true });
+      fs.writeFileSync(staged, blob);
+      files.push({ source, staged });
+      if (files.length % 50 === 0) stage('已下载 ' + files.length + ' 个文件…');
+    }
+  };
+  await walk(commit.tree);
+  log('下载文件：' + files.length + '。');
+  return { files, count: files.length };
+}
+module.exports = { projectUrl, loadGit, httpClient, overlayTree, currentReference, pushFiles, pullFiles };
